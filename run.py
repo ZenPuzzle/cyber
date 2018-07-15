@@ -11,41 +11,53 @@ import logging
 from telegram import ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 
+from map import Position, parse_gamedata, DIR2DIR_ID
+
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     level=logging.INFO)
 
 CONTINUE = "continue"
-GO_N = u"⬆️"
-GO_NE = u"↗️"
-GO_E = u"▶️"
-GO_SE = u"↘️"
-GO_S = u"⬇️"
-GO_SW = u"↙️"
-GO_W = u"◀️"
-GO_NW = u"↖️"
+DIR_ID2BUTTON = {
+    "N": u"⬆️"
+    "NE": u"↗️"
+    "E": u"▶️"
+    "SE": u"↘️"
+    "S": u"⬇️"
+    "SW": u"↙️"
+    "W": u"◀️"
+    "NW": u"↖️",
+    "U": u"UP",
+    "D": u"DOWN"
+}
 LOOK_AROUND = "look around"
 
-class Location(object):
-
-    def __init__(self, x = 0, y = 0, z = 0):
-        self._x = x
-        self._y = y
-        self._z = z
-
-    def __str__(self):
-        return "({}, {}, {})".format(self._x, self._y, self._z)
-
+START_LOCATION_ID = "001"
 
 def make_keyboard_markup(table):
     return ReplyKeyboardMarkup([[KeyboardButton(action) for action in row] for row in table], True)
 
 
-def show_map(player, bot):
-    text = "your location is: {}".format(player._loc)
+def make_direction_button(dir_id, transaction):
+    rich_markup = ""
+    if transaction._multiplier == 0:
+        rich_markup = u"🚷"
+    return DIR_ID2BUTTON[dir_id] + rich_markup
+
+
+def parse_direction_button(full_button_text):
+    direction = button[0]
+    for dir_id, button in DIR_ID2BUTTON.iteritems():
+        if button == full_button_text:
+            return dir_id
+
+
+def show_map(player, bot, geo):
+    loc = geo[player._location_id]
+    text = loc._descr
     keyboard = [
-        [GO_NW, GO_N, GO_NE],
-        [GO_W, LOOK_AROUND, GO_E],
-        [GO_SW, GO_S, GO_SE]
+        list(map(lambda x: make_direction_button(x, loc.adjacent), "NW", "N", "NE")),
+        make_direction_button("W", loc.adjacent), u"осмотреться", make_direction_button("E", loc.adjacent),
+        list(map(lambda x: make_direction_button(x, loc.adjacent), "SW", "S", "SE"))
     ]
     bot.send_message(player._chat_id, text, reply_markup=make_keyboard_markup(keyboard))
     player.set_actions(keyboard)
@@ -56,7 +68,7 @@ class Player(object):
     def __init__(self, user_id, chat_id):
         self._user_id = user_id
         self._chat_id = chat_id
-        self._loc = Location()
+        self._location_id = START_LOCATION_ID
         self._suggested_actions = {CONTINUE}
 
     def set_actions(self, keyboard):
@@ -65,42 +77,19 @@ class Player(object):
             for action in row:
                 self._suggested_actions.add(action)
 
-    def do_action(self, text, bot):
+    def do_action(self, text, bot, geo):
         if text not in self._suggested_actions:
             logging.info("INVALID_ACTION\t{}\t{}".format(self._user_id, text.encode("utf8")))
             return
         if text == CONTINUE:
-            show_map(self, bot)
-        elif text == GO_N:
-            self._loc._y += 1
-            show_map(self, bot)
-        elif text == GO_NE:
-            self._loc._y += 1
-            self._loc._x += 1
-            show_map(self, bot)
-        elif text == GO_E:
-            self._loc._x += 1
-            show_map(self, bot)
-        elif text == GO_SE:
-            self._loc._y -= 1
-            self._loc._x += 1
-            show_map(self, bot)
-        elif text == GO_S:
-            self._loc._y -= 1
-            show_map(self, bot)
-        elif text == GO_SW:
-            self._loc._y -= 1
-            self._loc._x -= 1
-            show_map(self, bot)
-        elif text == GO_W:
-            self._loc._x -= 1
-            show_map(self, bot)
-        elif text == GO_NW:
-            self._loc._y += 1
-            self._loc._x -= 1
-            show_map(self, bot)
+            show_map(self, bot, geo)
+        elif text in DIR_ID2BUTTON:
+            transition = geo[self._location_id].adjacent[text]
+            bot.send_message(self._chat_id, transition._descr)
+            self._location_id = transition.to_id
+            show_map(self, bot, geo)
         elif text == LOOK_AROUND:
-            show_map(self, bot)
+            show_map(self, bot, geo)
         else:
             raise Exception("UNIMPLEMENTED_ACTION\t{}\t{}".format(self._user_id, text.encode("utf8")))
 
@@ -122,8 +111,9 @@ class StartCommandHandlerCallback(object):
 
 class TextHandlerCallback(object):
 
-    def __init__(self, players):
+    def __init__(self, players, geo):
         self._players = players
+        self._geo = geo
 
     def __call__(self, bot, update):
         chat_id = update.message.chat_id
@@ -131,14 +121,14 @@ class TextHandlerCallback(object):
         player = self._players.get(update.message.from_user.id)
         if player is None:
             raise Exception("UNEXPECTED_USER_ID")
-        player.do_action(text, bot)
+        player.do_action(text, bot, self._geo)
 
 
 def handle_unknown(bot, update):
     bot.send_message(update.message.chat_id, text="unknown command")
 
 
-def run_main_loop(token):
+def run_main_loop(token, game_map):
     updater = Updater(token=token)
     dispatcher = updater.dispatcher
 
@@ -146,7 +136,7 @@ def run_main_loop(token):
 
     handlers = [
         CommandHandler("start", StartCommandHandlerCallback(players)),
-        MessageHandler(Filters.text, TextHandlerCallback(players)),
+        MessageHandler(Filters.text, TextHandlerCallback(players, game_map)),
         MessageHandler(Filters.all, handle_unknown)
     ]
 
@@ -168,7 +158,8 @@ def main():
     cfg = configparser.RawConfigParser()
     cfg.read(args.cfg)
 
-    run_main_loop(cfg.get("auth", "token"))
+    game_map = parse_gamedata(cfg.get("gamedata", "xml"))
+    run_main_loop(cfg.get("auth", "token"), game_map)
 
 
 if __name__ == "__main__":

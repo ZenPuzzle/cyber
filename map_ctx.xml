@@ -1,0 +1,14 @@
+<context name="map">
+    <action id="go_north">
+        <text>
+         ⬆️
+        </text>
+    </action>
+    <keyboard>
+        <row>
+            <cell>go_nw</cell><cell>go_north</cell><cell>go_ne</cell>
+            <cell>go_west</cell><cell>look_around</cell><cell>go_east</cell>
+            <cell>go_sw</cell><cell>go_south</cell><cell>go_se</cell>
+        </row>
+    </keyboard>
+</context>
