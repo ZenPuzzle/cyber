@@ -13,54 +13,54 @@ from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 
 from map import Position, parse_gamedata, DIR2DIR_ID
 
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                    level=logging.INFO)
 
-CONTINUE = "continue"
-DIR_ID2BUTTON = {
-    "N": u"⬆️"
-    "NE": u"↗️"
-    "E": u"▶️"
-    "SE": u"↘️"
-    "S": u"⬇️"
-    "SW": u"↙️"
-    "W": u"◀️"
-    "NW": u"↖️",
-    "U": u"UP",
-    "D": u"DOWN"
+WELCOME_SCREEN_KEYBOARD = [
+    [("CONTINUE", u"Продолжить")]
+]
+
+MAP_KEYBOARD = [
+    [("GO_NW", u"↖️"), ("GO_N", u"⬆️"), ("GO_NE", u"↗️")],
+    [("GO_W", u"◀️"), ("LOOKAROUND", u"Оглядеться"), ("GO_E", u"▶️")],
+    [("GO_SW", u"↙️"), ("GO_S", u"⬇️"), ("GO_SE", u"↘️")]
+]
+
+
+def do_go(player, bot, geo, dir_id):
+    loc = geo[player._location_id]
+    transition = loc._adjacent.get(dir_id)
+    bot.send_message(player._chat_id, transition._descr)
+    player.set_actions([])
+    if transition._multiplier > 0 and transition._to_id in geo:
+        player._location_id = transition._to_id
+    show_map(player, bot, geo)
+
+
+def do_look_around(player, bot, geo):
+    show_map(player, bot, geo)
+
+
+def do_continue(player, bot, geo):
+    show_map(player, bot, geo)
+
+
+ACTIONS = {
+    "GO": do_go,
+    "LOOKAROUND": do_look_around,
+    "CONTINUE": do_continue
 }
-LOOK_AROUND = "look around"
 
 START_LOCATION_ID = "001"
 
+
 def make_keyboard_markup(table):
-    return ReplyKeyboardMarkup([[KeyboardButton(action) for action in row] for row in table], True)
-
-
-def make_direction_button(dir_id, transaction):
-    rich_markup = ""
-    if transaction._multiplier == 0:
-        rich_markup = u"🚷"
-    return DIR_ID2BUTTON[dir_id] + rich_markup
-
-
-def parse_direction_button(full_button_text):
-    direction = button[0]
-    for dir_id, button in DIR_ID2BUTTON.iteritems():
-        if button == full_button_text:
-            return dir_id
+    return ReplyKeyboardMarkup([[KeyboardButton(text) for _, text in row] for row in table], True)
 
 
 def show_map(player, bot, geo):
     loc = geo[player._location_id]
     text = loc._descr
-    keyboard = [
-        list(map(lambda x: make_direction_button(x, loc.adjacent), "NW", "N", "NE")),
-        make_direction_button("W", loc.adjacent), u"осмотреться", make_direction_button("E", loc.adjacent),
-        list(map(lambda x: make_direction_button(x, loc.adjacent), "SW", "S", "SE"))
-    ]
-    bot.send_message(player._chat_id, text, reply_markup=make_keyboard_markup(keyboard))
-    player.set_actions(keyboard)
+    bot.send_message(player._chat_id, text, reply_markup=make_keyboard_markup(MAP_KEYBOARD))
+    player.set_actions(MAP_KEYBOARD)
 
 
 class Player(object):
@@ -69,29 +69,26 @@ class Player(object):
         self._user_id = user_id
         self._chat_id = chat_id
         self._location_id = START_LOCATION_ID
-        self._suggested_actions = {CONTINUE}
+        self._suggested_actions = None
 
     def set_actions(self, keyboard):
-        self._suggested_actions = set()
+        self._suggested_actions = dict()
         for row in keyboard:
-            for action in row:
-                self._suggested_actions.add(action)
+            for action, button_text in row:
+                self._suggested_actions[button_text] = action
 
     def do_action(self, text, bot, geo):
         if text not in self._suggested_actions:
             logging.info("INVALID_ACTION\t{}\t{}".format(self._user_id, text.encode("utf8")))
             return
-        if text == CONTINUE:
-            show_map(self, bot, geo)
-        elif text in DIR_ID2BUTTON:
-            transition = geo[self._location_id].adjacent[text]
-            bot.send_message(self._chat_id, transition._descr)
-            self._location_id = transition.to_id
-            show_map(self, bot, geo)
-        elif text == LOOK_AROUND:
-            show_map(self, bot, geo)
-        else:
+        parts = self._suggested_actions[text].split("_")
+        action, args = parts[0], parts[1:] if len(parts) > 1 else None
+        if action not in ACTIONS:
             raise Exception("UNIMPLEMENTED_ACTION\t{}\t{}".format(self._user_id, text.encode("utf8")))
+        if len(parts) == 1:
+            ACTIONS[action](self, bot, geo)
+        else:
+            ACTIONS[action](self, bot, geo, *args)
 
 
 class StartCommandHandlerCallback(object):
@@ -106,7 +103,9 @@ class StartCommandHandlerCallback(object):
         logging.info("NEW_USER\t{}".format(user_id))
         self._players[user_id] = Player(user_id, update.message.chat_id)
         text = "User {} is welcome in chat {}".format(user_id, update.message.chat_id)
-        bot.send_message(update.message.chat_id, text=text, reply_markup=make_keyboard_markup([[CONTINUE]]))
+        bot.send_message(update.message.chat_id, text=text,
+                         reply_markup=make_keyboard_markup(WELCOME_SCREEN_KEYBOARD))
+        self._players[user_id].set_actions(WELCOME_SCREEN_KEYBOARD)
 
 
 class TextHandlerCallback(object):
@@ -158,7 +157,13 @@ def main():
     cfg = configparser.RawConfigParser()
     cfg.read(args.cfg)
 
+
+    logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                        level=logging.INFO, filename="load_log.tsv")
     game_map = parse_gamedata(cfg.get("gamedata", "xml"))
+
+    logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                        level=logging.INFO, filename="log.tsv")
     run_main_loop(cfg.get("auth", "token"), game_map)
 
 

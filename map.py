@@ -2,6 +2,7 @@
 #coding: utf8
 from __future__ import print_function
 from xml.etree import ElementTree as ET
+import logging
 
 XML_NS = {
     "xls": "urn:schemas-microsoft-com:office:spreadsheet"
@@ -60,7 +61,7 @@ class Location(object):
     @staticmethod
     def parse_from_worksheet(worksheet):
         name = worksheet.get("{urn:schemas-microsoft-com:office:spreadsheet}Name", XML_NS)
-        print(name)
+        name = name.encode("utf8")
         try:
             int(name)
         except:
@@ -72,10 +73,10 @@ class Location(object):
             return
         first_cell = first_row[0]
         if first_cell is None:
-            print(name, "empty first row")
+            logging.warning("EMPTY_FIRST_ROW\t{}".format(name))
             return
         if first_cell.text != u"глобальная карта":
-            print(name, "bad first row data")
+            logging.warning("BAD_FIRST_ROW\t{}".format(name))
             return
         descr = get_cell_data(rows[1])[0].text
         assert descr
@@ -87,18 +88,18 @@ class Location(object):
         adjacent = dict()
         for row_index in range(6, 16):
             cells = get_cell_data(rows[row_index])
+            if len(cells) != 5:
+                continue
             dir_id = DIR2DIR_ID[cells[0].text]
             to_id = cells[2].text
             try:
                 multiplier = float(cells[3].text)
             except:
-                print("BAD MULTIPLIER, assuming 1", cells[3].text)
+                logging.warning("BAD_MULTIPLIER\t{}\t{}".format(name,
+                                cells[3].text.encode("utf8")))
                 multiplier = 1
-            if len(cells) > 4:
-                descr = cells[4].text
-            else:
-                descr = ""
-            adjacent[dir_id] = Transition(to_id, descr, multiplier)
+            journey_descr = cells[4].text
+            adjacent[dir_id] = Transition(to_id, journey_descr, multiplier)
 
         objects, events = list(), list()
         sum_object_prob, sum_event_prob = 0, 0
@@ -130,7 +131,8 @@ def parse_gamedata(filename):
         if location is not None:
             assert location._id not in game_map
             game_map[location._id] = location
-    print("read", len(game_map), "locations:", ", ".join(sorted(list(game_map.iterkeys()))))
+    logging.info("loaded {} locations: {}".format(len(game_map),
+                 ", ".join(sorted(list(game_map.iterkeys())))))
     return game_map
 
 if __name__ == "__main__":
