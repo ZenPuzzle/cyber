@@ -25,12 +25,16 @@ MAP_KEYBOARD = [
 ]
 
 
+def can_go(dir_id, adj, geo):
+    return (dir_id in adj) and (adj[dir_id]._to_id in geo) and adj[dir_id]._multiplier > 0
+
+
 def do_go(player, bot, geo, dir_id):
     loc = geo[player._location_id]
     transition = loc._adjacent.get(dir_id)
     bot.send_message(player._chat_id, transition._descr)
     player.set_actions([])
-    if transition._multiplier > 0 and transition._to_id in geo:
+    if can_go(dir_id, loc._adjacent, geo):
         player._location_id = transition._to_id
     show_map(player, bot, geo)
 
@@ -56,11 +60,23 @@ def make_keyboard_markup(table):
     return ReplyKeyboardMarkup([[KeyboardButton(text) for _, text in row] for row in table], True)
 
 
+def make_pretty_button(action, button, adj, geo):
+    if not action.startswith("GO"):
+        return button
+    if not can_go(action.split("_")[1], adj, geo):
+        return button + u"⛔️"
+    return button
+
+
 def show_map(player, bot, geo):
     loc = geo[player._location_id]
     text = loc._descr
-    bot.send_message(player._chat_id, text, reply_markup=make_keyboard_markup(MAP_KEYBOARD))
-    player.set_actions(MAP_KEYBOARD)
+    keyboard = [
+        [(action, make_pretty_button(action, button, loc._adjacent, geo)) for action, button in row]
+        for row in MAP_KEYBOARD
+    ]
+    bot.send_message(player._chat_id, text, reply_markup=make_keyboard_markup(keyboard))
+    player.set_actions(keyboard)
 
 
 class Player(object):
