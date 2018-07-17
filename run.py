@@ -75,7 +75,7 @@ def show_map(player, bot, geo):
         [(action, make_pretty_button(action, button, loc._adjacent, geo)) for action, button in row]
         for row in MAP_KEYBOARD
     ]
-    bot.send_message(player._chat_id, text, reply_markup=make_keyboard_markup(keyboard))
+    bot.send_message(player._chat_id, player._location_id + u" " + text, reply_markup=make_keyboard_markup(keyboard))
     player.set_actions(keyboard)
 
 
