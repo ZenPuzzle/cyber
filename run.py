@@ -8,10 +8,10 @@ except:
     import ConfigParser as configparser
 import logging
 
-from telegram import ReplyKeyboardMarkup, KeyboardButton
+from telegram import ReplyKeyboardMarkup, KeyboardButton, ChatAction, ParseMode
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 
-from map import Position, parse_gamedata, DIR2DIR_ID
+from map import Position, load_gamedata, DIR2DIR_ID
 
 
 WELCOME_SCREEN_KEYBOARD = [
@@ -75,7 +75,8 @@ def show_map(player, bot, geo):
         [(action, make_pretty_button(action, button, loc._adjacent, geo)) for action, button in row]
         for row in MAP_KEYBOARD
     ]
-    bot.send_message(player._chat_id, player._location_id + u" " + text, reply_markup=make_keyboard_markup(keyboard))
+    bot.send_message(player._chat_id, player._location_id + u" " + text,
+                     parse_mode=ParseMode.HTML, reply_markup=make_keyboard_markup(keyboard))
     player.set_actions(keyboard)
 
 
@@ -124,6 +125,30 @@ class StartCommandHandlerCallback(object):
         self._players[user_id].set_actions(WELCOME_SCREEN_KEYBOARD)
 
 
+class ReloadCommandHandlerCallback(object):
+
+    def __init__(self, players, game_map, credentials, spreadsheet_id):
+        self._players = players
+        self._game_map = game_map
+        self._credentials = credentials
+        self._spreadsheet_id = spreadsheet_id
+
+    def __call__(self, bot, update):
+        bot.send_message(update.message.chat_id, text="Refreshing game data...")
+        bot.send_chat_action(update.message.chat_id, ChatAction.TYPING, timeout=15)
+        try:
+            new_game_map = load_gamedata(self._credentials, self._spreadsheet_id)
+        except Exception as e:
+            bot.send_message(update.message.chat_id,
+                text="Failed to load gamedata. Details:\n{}".format(e.message))
+
+        self._players.clear()
+        self._game_map.clear()
+        self._game_map.update(new_game_map)
+        bot.send_message(update.message.chat_id,
+                         text="Success! Restart game: /start")
+
+
 class TextHandlerCallback(object):
 
     def __init__(self, players, geo):
@@ -143,7 +168,13 @@ def handle_unknown(bot, update):
     bot.send_message(update.message.chat_id, text="unknown command")
 
 
-def run_main_loop(token, game_map):
+def run_main_loop(token, credentials, spreadsheet_id):
+    logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                        level=logging.INFO, filename="load_log.tsv")
+    game_map = load_gamedata(credentials, spreadsheet_id)
+
+    logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                        level=logging.INFO, filename="log.tsv")
     updater = Updater(token=token)
     dispatcher = updater.dispatcher
 
@@ -151,6 +182,8 @@ def run_main_loop(token, game_map):
 
     handlers = [
         CommandHandler("start", StartCommandHandlerCallback(players)),
+        CommandHandler("reload", ReloadCommandHandlerCallback(players,
+                        game_map, credentials, spreadsheet_id)),
         MessageHandler(Filters.text, TextHandlerCallback(players, game_map)),
         MessageHandler(Filters.all, handle_unknown)
     ]
@@ -173,14 +206,8 @@ def main():
     cfg = configparser.RawConfigParser()
     cfg.read(args.cfg)
 
-
-    logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                        level=logging.INFO, filename="load_log.tsv")
-    game_map = parse_gamedata(cfg.get("gamedata", "xml"))
-
-    logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                        level=logging.INFO, filename="log.tsv")
-    run_main_loop(cfg.get("auth", "token"), game_map)
+    run_main_loop(cfg.get("auth", "token"), cfg.get("auth", "credentials"),
+                  cfg.get("gamedata", "spreadsheet_id"))
 
 
 if __name__ == "__main__":

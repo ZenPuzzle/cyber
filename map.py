@@ -231,8 +231,3 @@ def load_gamedata(credentials_filename, spreadsheet_id):
     logging.info("loaded {} locations: {}".format(len(game_map),
                  ", ".join(sorted(list(game_map.iterkeys())))))
     return game_map
-
-
-if __name__ == "__main__":
-#    parse_gamedata("gamedata.xml")
-    return
