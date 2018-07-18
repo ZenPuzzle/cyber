@@ -64,11 +64,7 @@ def make_pretty_button(action, button, adj, geo):
     if not action.startswith("GO"):
         return button
     dir_id = action.split("_")[1]
-    if not can_go(dir_id, adj, geo):
-        return button + u"⛔️"
-    if adj[dir_id]._extra_button_markup is not None:
-        return button + adj[dir_id]._extra_button_markup
-    return button
+    return adj[dir_id]._arrow + adj[dir_id]._extra_button_markup
 
 
 def show_map(player, bot, geo):

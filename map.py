@@ -96,13 +96,13 @@ class Location(object):
         adjacent = dict()
         for row_index in range(7, 15):
             row = rows[row_index]
-            assert len(row) >= 5
+            assert len(row) >= 6
             dir_id = DIR2DIR_ID[row[0]]
             to_id = row[2]
             multiplier = float(row[3])
             journey_descr = row[4]
-            arrow = row[5] if len(row) >= 6 else None
-            extra_button_markup = row[6] if len(row) >= 7 else None
+            arrow = row[5]
+            extra_button_markup = row[6] if len(row) >= 7 else u""
             adjacent[dir_id] = Transition(to_id, journey_descr, multiplier,
                                           arrow, extra_button_markup)
 
@@ -130,83 +130,6 @@ class Location(object):
                     events.append((prob, event_name))
                 row_index += 1
         return Location("", descr, size, research_rate, Position(x, y), adjacent, objects, events)
-
-    @staticmethod
-    def parse_from_worksheet(worksheet):
-        name = worksheet.get("{urn:schemas-microsoft-com:office:spreadsheet}Name", XML_NS)
-        name = name.encode("utf8")
-        try:
-            int(name)
-        except:
-            return
-        table = worksheet.find("xls:Table", XML_NS)
-        rows = table.findall("xls:Row", XML_NS)
-        first_row = get_cell_data(rows[0])
-        if first_row is None or len(first_row) == 0:
-            return
-        first_cell = first_row[0]
-        if first_cell is None:
-            logging.warning("EMPTY_FIRST_ROW\t{}".format(name))
-            return
-        if first_cell.text != u"глобальная карта":
-            logging.warning("BAD_FIRST_ROW\t{}".format(name))
-            return
-        descr = get_cell_data(rows[1])[0].text
-        assert descr
-        size = float(get_cell_data(rows[2])[1].text)
-        research_rate = float(get_cell_data(rows[2])[3].text)
-        x = float(get_cell_data(rows[3])[1].text)
-        y = float(get_cell_data(rows[3])[3].text)
-
-        adjacent = dict()
-        for row_index in range(6, 16):
-            cells = get_cell_data(rows[row_index])
-            if len(cells) != 5:
-                continue
-            dir_id = DIR2DIR_ID[cells[0].text]
-            to_id = cells[2].text
-            try:
-                multiplier = float(cells[3].text)
-            except:
-                logging.warning("BAD_MULTIPLIER\t{}\t{}".format(name,
-                                cells[3].text.encode("utf8")))
-                multiplier = 1
-            journey_descr = cells[4].text
-            adjacent[dir_id] = Transition(to_id, journey_descr, multiplier)
-
-        objects, events = list(), list()
-        sum_object_prob, sum_event_prob = 0, 0
-        for row_index in range(17, len(rows)):
-            cells = get_cell_data(rows[row_index])
-            if cells[0] is None:
-                continue
-            object_name = cells[0].text
-            if object_name:
-                object_prob = float(cells[1].text)
-                sum_object_prob += object_prob
-                objects.append((sum_object_prob, object_name))
-            event_name = cells[2 if len(cells) == 4 else 0].text
-            if event_name:
-                event_prob = float(cells[3 if len(cells) == 4 else 1].text)
-                sum_event_prob += event_prob
-                events.append((sum_event_prob, event_name))
-
-        return Location(name, descr, size, research_rate, Position(x, y), adjacent, objects, events)
-
-
-def parse_gamedata(filename):
-    tree = ET.parse(filename)
-    root = tree.getroot()
-    print(root.tag)
-    game_map = dict()
-    for worksheet in root.findall("xls:Worksheet", XML_NS):
-        location = Location.parse_from_worksheet(worksheet)
-        if location is not None:
-            assert location._id not in game_map
-            game_map[location._id] = location
-    logging.info("loaded {} locations: {}".format(len(game_map),
-                 ", ".join(sorted(list(game_map.iterkeys())))))
-    return game_map
 
 
 def load_spreadsheets(credentials_filename, spreadsheet_id):
