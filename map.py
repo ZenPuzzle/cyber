@@ -7,6 +7,8 @@ from apiclient.discovery import build
 from httplib2 import Http
 from oauth2client import file, client, tools
 import json
+import argparse
+import ConfigParser as configparser
 
 XML_NS = {
     "xls": "urn:schemas-microsoft-com:office:spreadsheet"
@@ -37,10 +39,12 @@ class Position(object):
 
 class Transition(object):
 
-    def __init__(self, to_id, descr, multiplier):
+    def __init__(self, to_id, descr, multiplier, arrow, extra_button_markup):
         self._to_id = to_id
         self._descr = descr
         self._multiplier = multiplier
+        self._arrow = arrow
+        self._extra_button_markup = extra_button_markup
 
 
 def get_cell_data(row):
@@ -82,7 +86,7 @@ class Location(object):
         assert rows[4][0] == u"Y"
         y = float(rows[4][1])
 
-        assert rows[6] == [
+        assert rows[6][:5] == [
             u"выходы",
             u"условие",
             u"переход на",
@@ -97,7 +101,10 @@ class Location(object):
             to_id = row[2]
             multiplier = float(row[3])
             journey_descr = row[4]
-            adjacent[dir_id] = Transition(to_id, journey_descr, multiplier)
+            arrow = row[5] if len(row) >= 6 else None
+            extra_button_markup = row[6] if len(row) >= 7 else None
+            adjacent[dir_id] = Transition(to_id, journey_descr, multiplier,
+                                          arrow, extra_button_markup)
 
         assert rows[17][0] == u"постоянные объекты"
         row_index = 18
@@ -231,3 +238,14 @@ def load_gamedata(credentials_filename, spreadsheet_id):
     logging.info("loaded {} locations: {}".format(len(game_map),
                  ", ".join(sorted(list(game_map.iterkeys())))))
     return game_map
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("cfg")
+    args = parser.parse_args()
+
+    cfg = configparser.RawConfigParser()
+    cfg.read(args.cfg)
+
+    game_map = load_gamedata(cfg.get("auth", "credentials"), cfg.get("gamedata", "spreadsheet_id"))

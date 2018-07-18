@@ -63,8 +63,11 @@ def make_keyboard_markup(table):
 def make_pretty_button(action, button, adj, geo):
     if not action.startswith("GO"):
         return button
-    if not can_go(action.split("_")[1], adj, geo):
+    dir_id = action.split("_")[1]
+    if not can_go(dir_id, adj, geo):
         return button + u"⛔️"
+    if adj[dir_id]._extra_button_markup is not None:
+        return button + adj[dir_id]._extra_button_markup
     return button
 
 
@@ -141,6 +144,7 @@ class ReloadCommandHandlerCallback(object):
         except Exception as e:
             bot.send_message(update.message.chat_id,
                 text="Failed to load gamedata. Details:\n{}".format(e.message))
+            return
 
         self._players.clear()
         self._game_map.clear()
