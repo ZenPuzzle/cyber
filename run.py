@@ -19,9 +19,9 @@ WELCOME_SCREEN_KEYBOARD = [
 ]
 
 MAP_KEYBOARD = [
-    [("GO_NW", u"↖️"), ("GO_N", u"⬆️"), ("GO_NE", u"↗️")],
-    [("GO_W", u"◀️"), ("LOOKAROUND", u"Оглядеться"), ("GO_E", u"▶️")],
-    [("GO_SW", u"↙️"), ("GO_S", u"⬇️"), ("GO_SE", u"↘️")]
+    [("SUPERMIND", u"🌐"), ("GO_NW", u"↖️"), ("GO_N", u"⬆️"), ("GO_NE", u"↗️")],
+    [("LAB", u"🗺"), ("GO_W", u"◀️"), ("LOOKAROUND", u"Оглядеться"), ("GO_E", u"▶️")],
+    [("AVATAR", u"🤡"), ("GO_SW", u"↙️"), ("GO_S", u"⬇️"), ("GO_SE", u"↘️")]
 ]
 
 
@@ -47,10 +47,17 @@ def do_continue(player, bot, geo):
     show_map(player, bot, geo)
 
 
+def do_nothing(player, bot, geo):
+    return
+
+
 ACTIONS = {
     "GO": do_go,
     "LOOKAROUND": do_look_around,
-    "CONTINUE": do_continue
+    "CONTINUE": do_continue,
+    "SUPERMIND": do_nothing,
+    "LAB": do_nothing,
+    "AVATAR": do_nothing
 }
 
 START_LOCATION_ID = "001"
