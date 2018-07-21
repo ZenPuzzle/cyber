@@ -21,10 +21,6 @@ class Act(object):
         self._args = args
 
 
-WELCOME_SCREEN_KEYBOARD = [
-    [("CONTINUE", u"Продолжить")]
-]
-
 MAP_KEYBOARD = [
     [("SUPERMIND", u"🌐"), (Act("GO", "NW"), u"↖️"), (Act("GO", "N"), u"⬆️"), (Act("GO", "NE"), u"↗️")],
     [("LAB", u"🗺"), (Act("GO", "W"), u"◀️"), ("SHOWVENUES", u"🔄"), (Act("GO", "E"), u"▶️")],
@@ -33,7 +29,8 @@ MAP_KEYBOARD = [
 
 
 def make_keyboard_markup(table):
-    return ReplyKeyboardMarkup([[KeyboardButton(text) for _, text in row] for row in table], True)
+    if table is not None:
+        return ReplyKeyboardMarkup([[KeyboardButton(text) for _, text in row] for row in table], True)
 
 
 def make_pretty_button(action, button, adj):
@@ -49,14 +46,12 @@ def can_go(dir_id, adj, gamedata):
 
 def do_show_map(player, bot, gamedata):
     loc = gamedata._map[player._location_id]
-    text = loc._descr
+    text = player._location_id + u" " + loc._descr
     keyboard = [
         [(action, make_pretty_button(action, button, loc._adjacent)) for action, button in row]
         for row in MAP_KEYBOARD
     ]
-    bot.send_message(player._chat_id, player._location_id + u" " + text,
-                     parse_mode=ParseMode.HTML, reply_markup=make_keyboard_markup(keyboard))
-    player.set_actions(keyboard)
+    player.send_message(bot, text, keyboard)
 
 
 def get_show_venues_keyboard(player, gamedata):
@@ -75,9 +70,7 @@ def do_show_venues(player, bot, gamedata):
     loc = gamedata._map[player._location_id]
     text = player._location_id + u" " + loc._descr
     keyboard = get_show_venues_keyboard(player, gamedata)
-    bot.send_message(player._chat_id, text, parse_mode=ParseMode.HTML,
-                     reply_markup=make_keyboard_markup(keyboard))
-    player.set_actions(keyboard)
+    player.send_message(bot, text, keyboard)
 
 
 def choose_outcome(outcomes):
@@ -100,15 +93,18 @@ def do_get_outcome(player, bot, gamedata, event_id, text_id, option_text, show_d
         message_parts.append(outcome._outcome_id)
     message = u"\n...\n".join(message_parts).encode("utf8")
     keyboard = get_show_venues_keyboard(player, gamedata)
-    bot.send_message(player._chat_id, message,
-                     reply_markup=make_keyboard_markup(keyboard))
+    player.send_message(bot, message, keyboard)
 
 
 def do_venue_action(player, bot, gamedata, venue_option, venue_message):
-    bot.send_message(player._chat_id, venue_message)
+    player.send_message(bot, venue_message, [])
 
     loc = gamedata._map[player._location_id]
     event_id = loc.get_random_event(venue_option)
+    if event_id not in gamedata._texts:
+        player.send_message(bot, u"no data for event: {}".format(event_id),
+                            get_show_venues_keyboard(player, gamedata))
+        return
     #TODO: ensure event_id is always present in texts
     text_id = random.choice(gamedata._texts[event_id].keys())
     descr, options = gamedata._texts[event_id][text_id]
@@ -121,15 +117,13 @@ def do_venue_action(player, bot, gamedata, venue_option, venue_message):
     for option_text, outcomes in options.iteritems():
         action = Act("GETOUTCOME", event_id, text_id, option_text, False)
         keyboard.append([(action, option_text)])
-    bot.send_message(player._chat_id, message, reply_markup=make_keyboard_markup(keyboard))
-    player.set_actions(keyboard)
+    player.send_message(bot, message, keyboard)
 
 
 def do_go(player, bot, gamedata, dir_id):
     loc = gamedata._map[player._location_id]
     transition = loc._adjacent.get(dir_id)
-    bot.send_message(player._chat_id, transition._descr)
-    player.set_actions([])
+    player.send_message(bot, transition._descr, [])
     if can_go(dir_id, loc._adjacent, gamedata):
         player._location_id = transition._to_id
     do_show_map(player, bot, gamedata)
@@ -188,6 +182,13 @@ class Player(object):
         else:
             ACTIONS[action](self, bot, gamedata, *args)
 
+    def send_message(self, bot, text, keyboard=None):
+        bot.send_message(self._chat_id, text,
+                         reply_markup=make_keyboard_markup(keyboard),
+                         parse_mode=ParseMode.HTML)
+        if keyboard is not None:
+            self.set_actions(keyboard)
+
 
 class StartCommandHandlerCallback(object):
 
@@ -200,10 +201,10 @@ class StartCommandHandlerCallback(object):
             return
         logging.info("NEW_USER\t{}".format(user_id))
         self._players[user_id] = Player(user_id, update.message.chat_id)
+
         text = "User {} is welcome in chat {}".format(user_id, update.message.chat_id)
-        bot.send_message(update.message.chat_id, text=text,
-                         reply_markup=make_keyboard_markup(WELCOME_SCREEN_KEYBOARD))
-        self._players[user_id].set_actions(WELCOME_SCREEN_KEYBOARD)
+        keyboard = [[("CONTINUE", u"Продолжить")]]
+        self._players[user_id].send_message(bot, text, keyboard)
 
 
 class ReloadCommandHandlerCallback(object):
