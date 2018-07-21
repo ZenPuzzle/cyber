@@ -247,10 +247,6 @@ class TextHandlerCallback(object):
         player.do_action(text, bot, self._gamedata)
 
 
-def handle_unknown(bot, update):
-    bot.send_message(update.message.chat_id, text="unknown command")
-
-
 def run_main_loop(token, credentials, spreadsheet_id):
     logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                         level=logging.INFO, filename="load_log.tsv")
@@ -268,8 +264,7 @@ def run_main_loop(token, credentials, spreadsheet_id):
         CommandHandler("start", StartCommandHandlerCallback(players)),
         CommandHandler("reload", ReloadCommandHandlerCallback(players,
                         gamedata, credentials, spreadsheet_id)),
-        MessageHandler(Filters.text, TextHandlerCallback(players, gamedata)),
-        MessageHandler(Filters.all, handle_unknown)
+        MessageHandler(Filters.text, TextHandlerCallback(players, gamedata))
     ]
 
     for handler in handlers:
