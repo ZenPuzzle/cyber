@@ -153,7 +153,7 @@ class Location(object):
 
 class Venue(object):
     """
-    options - dict of (descr, events)
+    options - dict of (descr, message, events)
         events is a sorted list of (accu prob, event_id)
     """
 
@@ -189,15 +189,16 @@ def load_venues(sheet_data):
             while row_index < len(rows) and len(rows[row_index]) > 1 and (rows[row_index][1] in {venue_name, u""}):
                 row = rows[row_index]
                 option_text = row[2]
+                option_message = row[3] if row[3] else u"Исследуем"
 
                 events = list()
                 while row_index < len(rows) and len(rows[row_index]) > 1 and (rows[row_index][1] in {venue_name, u""}) and (rows[row_index][2] in {option_text, u""}):
                     row = rows[row_index]
-                    if len(row) >= 6:
-                        events.append((float(row[4].strip("%")) * 0.01, row[5]))
+                    if len(row) >= 7:
+                        events.append((float(row[5].strip("%")) * 0.01, row[6]))
                     row_index += 1
 
-                options.append((option_text, accumulate_probs(events)))
+                options.append((option_text, option_message, accumulate_probs(events)))
             if venue_name != u"исследование":
                 assert venue_id not in venues, "duplicate venue id: {}, row: {}".format(venue_id.encode("utf8"), u" ".join(rows[row_index]).encode('utf8'))
                 venues[venue_id] = Venue(venue_name, options)
@@ -279,7 +280,7 @@ class GameData(object):
                     logging.warning("Skipping unknown venue: {}".format(venue_id.encode("utf8")))
                     continue
                 venue = self._venues[venue_id]
-                for option, events in venue._options:
+                for option, _, events in venue._options:
                     venue_option2events[option] = events
             game_map[loc_id]._venue_option2events = venue_option2events
 

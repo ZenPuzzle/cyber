@@ -69,7 +69,7 @@ def do_show_venues(player, bot, gamedata):
     for venue_id in loc._venues:
         if venue_id in gamedata._venues:
             for option in gamedata._venues[venue_id]._options:
-                keyboard.append([(Act(u"VENUEACTION", option[0]), option[0])])
+                keyboard.append([(Act(u"VENUEACTION", option[0], option[1]), option[0])])
 
     bot.send_message(player._chat_id, text, parse_mode=ParseMode.HTML,
                      reply_markup=make_keyboard_markup(keyboard))
@@ -99,7 +99,9 @@ def do_get_outcome(player, bot, gamedata, event_id, text_id, option_text, show_d
     do_show_venues(player, bot, gamedata)
 
 
-def do_venue_action(player, bot, gamedata, venue_option):
+def do_venue_action(player, bot, gamedata, venue_option, venue_message):
+    bot.send_message(player._chat_id, venue_message)
+
     loc = gamedata._map[player._location_id]
     event_id = loc.get_random_event(venue_option)
     #TODO: ensure event_id is always present in texts
