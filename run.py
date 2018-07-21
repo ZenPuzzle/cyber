@@ -20,40 +20,84 @@ WELCOME_SCREEN_KEYBOARD = [
 
 MAP_KEYBOARD = [
     [("SUPERMIND", u"🌐"), ("GO_NW", u"↖️"), ("GO_N", u"⬆️"), ("GO_NE", u"↗️")],
-    [("LAB", u"🗺"), ("GO_W", u"◀️"), ("LOOKAROUND", u"Оглядеться"), ("GO_E", u"▶️")],
+    [("LAB", u"🗺"), ("GO_W", u"◀️"), ("SHOWVENUES", u"🔄"), ("GO_E", u"▶️")],
     [("AVATAR", u"🤡"), ("GO_SW", u"↙️"), ("GO_S", u"⬇️"), ("GO_SE", u"↘️")]
 ]
 
 
-def can_go(dir_id, adj, geo):
-    return (dir_id in adj) and (adj[dir_id]._to_id in geo) and adj[dir_id]._multiplier > 0
+def make_keyboard_markup(table):
+    return ReplyKeyboardMarkup([[KeyboardButton(text) for _, text in row] for row in table], True)
 
 
-def do_go(player, bot, geo, dir_id):
-    loc = geo[player._location_id]
+def make_pretty_button(action, button, adj):
+    if not action.startswith("GO"):
+        return button
+    dir_id = action.split("_")[1]
+    return adj[dir_id]._arrow + adj[dir_id]._extra_button_markup
+
+
+def can_go(dir_id, adj, gamedata):
+    return (dir_id in adj) and (adj[dir_id]._to_id in gamedata._map) and adj[dir_id]._multiplier > 0
+
+
+def do_show_map(player, bot, gamedata):
+    loc = gamedata._map[player._location_id]
+    text = loc._descr
+    keyboard = [
+        [(action, make_pretty_button(action, button, loc._adjacent)) for action, button in row]
+        for row in MAP_KEYBOARD
+    ]
+    bot.send_message(player._chat_id, player._location_id + u" " + text,
+                     parse_mode=ParseMode.HTML, reply_markup=make_keyboard_markup(keyboard))
+    player.set_actions(keyboard)
+
+
+def do_show_venues(player, bot, gamedata):
+    loc = gamedata._map[player._location_id]
+    text = player._location_id + u" " + loc._descr
+
+    keyboard = [
+        [("SUPERMIND", u"🌐"), ("LAB", u"🗺"), ("AVATAR", u"🤡"), ("SHOWMAP", u"🔄")]
+    ]
+    for venue_id in loc._venues:
+        if venue_id in gamedata._venues:
+            for option in gamedata._venues[venue_id]._options:
+                keyboard.append([(u"VENUEACTION_" + option[0], option[0])])
+
+    bot.send_message(player._chat_id, text, parse_mode=ParseMode.HTML,
+                     reply_markup=make_keyboard_markup(keyboard))
+    player.set_actions(keyboard)
+
+
+def do_venue_action(player, bot, gamedata, venue_option):
+    loc = gamedata._map[player._location_id]
+    event = loc.get_random_event(venue_option)
+    bot.send_message(player._chat_id, event)
+
+
+def do_go(player, bot, gamedata, dir_id):
+    loc = gamedata._map[player._location_id]
     transition = loc._adjacent.get(dir_id)
     bot.send_message(player._chat_id, transition._descr)
     player.set_actions([])
-    if can_go(dir_id, loc._adjacent, geo):
+    if can_go(dir_id, loc._adjacent, gamedata):
         player._location_id = transition._to_id
-    show_map(player, bot, geo)
+    do_show_map(player, bot, gamedata)
 
 
-def do_look_around(player, bot, geo):
-    show_map(player, bot, geo)
+def do_continue(player, bot, gamedata):
+    do_show_map(player, bot, gamedata)
 
 
-def do_continue(player, bot, geo):
-    show_map(player, bot, geo)
-
-
-def do_nothing(player, bot, geo):
+def do_nothing(player, bot, gamedata):
     return
 
 
 ACTIONS = {
     "GO": do_go,
-    "LOOKAROUND": do_look_around,
+    "SHOWMAP": do_show_map,
+    "SHOWVENUES": do_show_venues,
+    "VENUEACTION": do_venue_action,
     "CONTINUE": do_continue,
     "SUPERMIND": do_nothing,
     "LAB": do_nothing,
@@ -61,29 +105,6 @@ ACTIONS = {
 }
 
 START_LOCATION_ID = "001"
-
-
-def make_keyboard_markup(table):
-    return ReplyKeyboardMarkup([[KeyboardButton(text) for _, text in row] for row in table], True)
-
-
-def make_pretty_button(action, button, adj, geo):
-    if not action.startswith("GO"):
-        return button
-    dir_id = action.split("_")[1]
-    return adj[dir_id]._arrow + adj[dir_id]._extra_button_markup
-
-
-def show_map(player, bot, geo):
-    loc = geo[player._location_id]
-    text = loc._descr
-    keyboard = [
-        [(action, make_pretty_button(action, button, loc._adjacent, geo)) for action, button in row]
-        for row in MAP_KEYBOARD
-    ]
-    bot.send_message(player._chat_id, player._location_id + u" " + text,
-                     parse_mode=ParseMode.HTML, reply_markup=make_keyboard_markup(keyboard))
-    player.set_actions(keyboard)
 
 
 class Player(object):
@@ -100,7 +121,7 @@ class Player(object):
             for action, button_text in row:
                 self._suggested_actions[button_text] = action
 
-    def do_action(self, text, bot, geo):
+    def do_action(self, text, bot, gamedata):
         if text not in self._suggested_actions:
             logging.info("INVALID_ACTION\t{}\t{}".format(self._user_id, text.encode("utf8")))
             return
@@ -109,9 +130,9 @@ class Player(object):
         if action not in ACTIONS:
             raise Exception("UNIMPLEMENTED_ACTION\t{}\t{}".format(self._user_id, text.encode("utf8")))
         if len(parts) == 1:
-            ACTIONS[action](self, bot, geo)
+            ACTIONS[action](self, bot, gamedata)
         else:
-            ACTIONS[action](self, bot, geo, *args)
+            ACTIONS[action](self, bot, gamedata, *args)
 
 
 class StartCommandHandlerCallback(object):
@@ -133,9 +154,9 @@ class StartCommandHandlerCallback(object):
 
 class ReloadCommandHandlerCallback(object):
 
-    def __init__(self, players, game_map, credentials, spreadsheet_id):
+    def __init__(self, players, gamedata, credentials, spreadsheet_id):
         self._players = players
-        self._game_map = game_map
+        self._gamedata = gamedata
         self._credentials = credentials
         self._spreadsheet_id = spreadsheet_id
 
@@ -143,24 +164,23 @@ class ReloadCommandHandlerCallback(object):
         bot.send_message(update.message.chat_id, text="Refreshing game data...")
         bot.send_chat_action(update.message.chat_id, ChatAction.TYPING, timeout=15)
         try:
-            new_game_map = load_gamedata(self._credentials, self._spreadsheet_id)
+            new_game_data = load_gamedata(self._credentials, self._spreadsheet_id)
         except Exception as e:
             bot.send_message(update.message.chat_id,
-                text="Failed to load gamedata. Details:\n{}".format(e.message))
+                text="Failed to load gamedata. Details: {}".format(e.message))
             return
 
         self._players.clear()
-        self._game_map.clear()
-        self._game_map.update(new_game_map)
+        self._gamedata.update(new_game_data)
         bot.send_message(update.message.chat_id,
                          text="Success! Restart game: /start")
 
 
 class TextHandlerCallback(object):
 
-    def __init__(self, players, geo):
+    def __init__(self, players, gamedata):
         self._players = players
-        self._geo = geo
+        self._gamedata = gamedata
 
     def __call__(self, bot, update):
         chat_id = update.message.chat_id
@@ -168,7 +188,7 @@ class TextHandlerCallback(object):
         player = self._players.get(update.message.from_user.id)
         if player is None:
             raise Exception("UNEXPECTED_USER_ID")
-        player.do_action(text, bot, self._geo)
+        player.do_action(text, bot, self._gamedata)
 
 
 def handle_unknown(bot, update):
@@ -178,7 +198,7 @@ def handle_unknown(bot, update):
 def run_main_loop(token, credentials, spreadsheet_id):
     logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                         level=logging.INFO, filename="load_log.tsv")
-    game_map = load_gamedata(credentials, spreadsheet_id)
+    gamedata = load_gamedata(credentials, spreadsheet_id)
 
     logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                         level=logging.INFO, filename="log.tsv")
@@ -190,8 +210,8 @@ def run_main_loop(token, credentials, spreadsheet_id):
     handlers = [
         CommandHandler("start", StartCommandHandlerCallback(players)),
         CommandHandler("reload", ReloadCommandHandlerCallback(players,
-                        game_map, credentials, spreadsheet_id)),
-        MessageHandler(Filters.text, TextHandlerCallback(players, game_map)),
+                        gamedata, credentials, spreadsheet_id)),
+        MessageHandler(Filters.text, TextHandlerCallback(players, gamedata)),
         MessageHandler(Filters.all, handle_unknown)
     ]
 
