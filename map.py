@@ -78,14 +78,6 @@ class Location(object):
         self._events = events
         self._venue_option2events = dict()
 
-    def get_random_event(self, venue_option):
-        p = random.random()
-        for accu_prob, event_id in self._venue_option2events[venue_option]:
-            logging.info("p: {}, accu_prob: {}".format(p, accu_prob))
-            if p < accu_prob:
-                return event_id
-        assert False, "bad event probabilites"
-
     @staticmethod
     def parse_from_sheet(worksheet):
         rows = worksheet["values"]

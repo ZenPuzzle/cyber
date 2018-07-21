@@ -82,7 +82,9 @@ def do_venue_action(player, bot, gamedata, venue_option, venue_message):
     player.send_message(bot, venue_message, [])
 
     loc = gamedata._map[player._location_id]
-    event_id = loc.get_random_event(venue_option)
+
+    outcomes = loc._venue_option2events[venue_option]
+    event_id = choose_outcome(outcomes)
     if event_id not in gamedata._texts:
         player.send_message(bot, u"no data for event: {}".format(event_id),
                             get_show_venues_keyboard(player, gamedata))
