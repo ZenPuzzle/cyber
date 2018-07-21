@@ -30,7 +30,6 @@ class StartCommandHandlerCallback(object):
         keyboard = [[("CONTINUE", u"Продолжить")]]
         self._players[user_id].send_message(bot, text, keyboard)
 
-
 class ReloadCommandHandlerCallback(object):
 
     def __init__(self, players, gamedata, credentials, spreadsheet_id):
@@ -54,7 +53,6 @@ class ReloadCommandHandlerCallback(object):
         bot.send_message(update.message.chat_id,
                          text=u"Game data was updated.\n{}\nRestart game: /start".format(
                              get_gamedata_status(self._gamedata)))
-
 
 class TextHandlerCallback(object):
 
@@ -94,11 +92,7 @@ def run_main_loop(token, credentials, spreadsheet_id):
     for handler in handlers:
         dispatcher.add_handler(handler)
 
-    try:
-        updater.start_polling()
-    except Exception as e:
-        logging.error("UPDATER_EXCEPTION: {}".format(e.message))
-        updater.stop()
+    updater.start_polling()
 
 
 def main():
