@@ -22,10 +22,6 @@ def make_pretty_button(action, button, adj):
     return adj[dir_id]._arrow + adj[dir_id]._extra_button_markup
 
 
-def can_go(dir_id, adj, gamedata):
-    return (dir_id in adj) and (adj[dir_id]._to_id in gamedata._map) and adj[dir_id]._multiplier > 0
-
-
 def do_show_map(player, bot, gamedata):
     loc = gamedata._map[player._location_id]
     text = player._location_id + u" " + loc._descr
@@ -104,13 +100,21 @@ def do_venue_action(player, bot, gamedata, venue_option, venue_message):
     player.send_message(bot, message, keyboard)
 
 
+def can_go(dir_id, adj, gamedata):
+    return (dir_id in adj) and (adj[dir_id]._to_id in gamedata._map) and adj[dir_id]._multiplier > 0
+
+
 def do_go(player, bot, gamedata, dir_id):
     loc = gamedata._map[player._location_id]
     transition = loc._adjacent.get(dir_id)
-    player.send_message(bot, transition._descr, [])
     if can_go(dir_id, loc._adjacent, gamedata):
-        player._location_id = transition._to_id
-    do_show_map(player, bot, gamedata)
+        player.set_delayed_action(bot, transition._multiplier, Act("CHANGELOC", transition._to_id))
+        keyboard = [
+            [(Act("CANCEL", Act("SHOWMAP")), u"Отмена")]
+        ]
+        player.send_message(bot, transition._descr, keyboard)
+        return
+    player.send_message(bot, transition._descr)
 
 
 def do_continue(player, bot, gamedata):
@@ -119,6 +123,17 @@ def do_continue(player, bot, gamedata):
 
 def do_nothing(player, bot, gamedata):
     return
+
+
+def do_change_location(player, bot, gamedata, to_loc_id):
+    player._location_id = to_loc_id
+    do_show_map(player, bot, gamedata)
+
+
+def do_cancel(player, bot, gamedata, prev_action):
+    player._delayed_action = None
+    player._fullfill_time = None
+    player.do_action(prev_action, bot, gamedata)
 
 
 ACTIONS = {
@@ -130,5 +145,7 @@ ACTIONS = {
     "CONTINUE": do_continue,
     "SUPERMIND": do_nothing,
     "LAB": do_nothing,
-    "AVATAR": do_nothing
+    "AVATAR": do_nothing,
+    "CHANGELOC": do_change_location,
+    "CANCEL": do_cancel
 }

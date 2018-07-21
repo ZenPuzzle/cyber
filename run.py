@@ -7,12 +7,14 @@ try:
 except:
     import ConfigParser as configparser
 import logging
+import threading
 
 from telegram import ChatAction
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 
 from map import load_gamedata, get_gamedata_status
 from player import Player
+import delayed_actions
 
 class StartCommandHandlerCallback(object):
 
@@ -66,7 +68,7 @@ class TextHandlerCallback(object):
         player = self._players.get(update.message.from_user.id)
         if player is None:
             raise Exception("UNEXPECTED_USER_ID")
-        player.do_action(text, bot, self._gamedata)
+        player.handle_text_update(text, bot, self._gamedata)
 
 
 def run_main_loop(token, credentials, spreadsheet_id):
@@ -77,10 +79,16 @@ def run_main_loop(token, credentials, spreadsheet_id):
 
     logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                         level=logging.INFO, filename="log.tsv")
+
     updater = Updater(token=token)
+    updater.bot.delayed_action_lock = threading.Lock()
+    updater.bot.delayed_actions = list()
     dispatcher = updater.dispatcher
 
     players = dict()
+
+    threading.Thread(target=delayed_actions.run_routine,
+                     args=(updater.bot, players, gamedata)).start()
 
     handlers = [
         CommandHandler("start", StartCommandHandlerCallback(players)),

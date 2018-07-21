@@ -1,9 +1,14 @@
 import logging
+import time
+import threading
+from heapq import heappush
 
 from telegram import ReplyKeyboardMarkup, KeyboardButton, ParseMode
 
-from actions import ACTIONS
+from actions import ACTIONS, Act
 
+
+TICK_DURATION = 5
 
 def make_keyboard_markup(table):
     if table is not None:
@@ -17,29 +22,36 @@ class Player(object):
         self._chat_id = chat_id
         self._location_id = "001"
         self._suggested_actions = None
+        self._delayed_action = None
+        self._lock = threading.Lock()
 
     def set_actions(self, keyboard):
         self._suggested_actions = dict()
         for row in keyboard:
             for action, button_text in row:
+                assert type(button_text) == unicode
                 self._suggested_actions[button_text] = action
 
-    def do_action(self, text, bot, gamedata):
+    def set_delayed_action(self, bot, ticks, action):
+        self._delayed_action = action
+        self._fullfill_time = time.time() + ticks * TICK_DURATION
+        with bot.delayed_action_lock:
+            heappush(bot.delayed_actions, (self._fullfill_time, 1, self._user_id))
+
+    def do_action(self, action, bot, gamedata):
+        if action._name not in ACTIONS:
+            raise Exception("UNIMPLEMENTED_ACTION\t{}".format(action._name))
+        ACTIONS[action._name](self, bot, gamedata, *action._args)
+
+    def handle_text_update(self, text, bot, gamedata):
         if text not in self._suggested_actions:
-            logging.info("INVALID_ACTION\t{}\t{}".format(self._user_id, text.encode("utf8")))
+            logging.info(u"{} not in suggested actions".format(text).encode("utf8"))
             return
         if type(self._suggested_actions[text]) in {str, unicode}:
-            action, args = self._suggested_actions[text], tuple()
+            action = Act(self._suggested_actions[text])
         else:
-            action, args = self._suggested_actions[text]._name, self._suggested_actions[text]._args
-        if action not in ACTIONS:
-            raise Exception("UNIMPLEMENTED_ACTION\t{}\t{}".format(self._user_id, text.encode("utf8")))
-        ACTIONS[action](self, bot, gamedata, *args)
-        return
-        if len(parts) == 1:
-            ACTIONS[action](self, bot, gamedata)
-        else:
-            ACTIONS[action](self, bot, gamedata, *args)
+            action = self._suggested_actions[text]
+        self.do_action(action, bot, gamedata)
 
     def send_message(self, bot, text, keyboard=None):
         bot.send_message(self._chat_id, text,
