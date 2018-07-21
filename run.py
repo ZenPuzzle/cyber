@@ -59,10 +59,8 @@ def do_show_map(player, bot, gamedata):
     player.set_actions(keyboard)
 
 
-def do_show_venues(player, bot, gamedata):
+def get_show_venues_keyboard(player, gamedata):
     loc = gamedata._map[player._location_id]
-    text = player._location_id + u" " + loc._descr
-
     keyboard = [
         [("SUPERMIND", u"🌐"), ("LAB", u"🗺"), ("AVATAR", u"🤡"), ("SHOWMAP", u"🔄")]
     ]
@@ -70,7 +68,13 @@ def do_show_venues(player, bot, gamedata):
         if venue_id in gamedata._venues:
             for option in gamedata._venues[venue_id]._options:
                 keyboard.append([(Act(u"VENUEACTION", option[0], option[1]), option[0])])
+    return keyboard
 
+
+def do_show_venues(player, bot, gamedata):
+    loc = gamedata._map[player._location_id]
+    text = player._location_id + u" " + loc._descr
+    keyboard = get_show_venues_keyboard(player, gamedata)
     bot.send_message(player._chat_id, text, parse_mode=ParseMode.HTML,
                      reply_markup=make_keyboard_markup(keyboard))
     player.set_actions(keyboard)
@@ -95,8 +99,9 @@ def do_get_outcome(player, bot, gamedata, event_id, text_id, option_text, show_d
     if outcome._outcome_id:
         message_parts.append(outcome._outcome_id)
     message = u"\n...\n".join(message_parts).encode("utf8")
-    bot.send_message(player._chat_id, message)
-    do_show_venues(player, bot, gamedata)
+    keyboard = get_show_venues_keyboard(player, gamedata)
+    bot.send_message(player._chat_id, message,
+                     reply_markup=make_keyboard_markup(keyboard))
 
 
 def do_venue_action(player, bot, gamedata, venue_option, venue_message):
