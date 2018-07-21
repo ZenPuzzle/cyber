@@ -8,7 +8,7 @@ from telegram import ReplyKeyboardMarkup, KeyboardButton, ParseMode
 from actions import ACTIONS, Act
 
 
-TICK_DURATION = 5
+TICK_DURATION = 0.5
 
 def make_keyboard_markup(table):
     if table is not None:
