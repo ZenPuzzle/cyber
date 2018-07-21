@@ -7,11 +7,18 @@ try:
 except:
     import ConfigParser as configparser
 import logging
+import random
 
 from telegram import ReplyKeyboardMarkup, KeyboardButton, ChatAction, ParseMode
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 
-from map import Position, load_gamedata, DIR2DIR_ID
+from map import load_gamedata, get_gamedata_status
+
+class Act(object):
+
+    def __init__(self, name, *args):
+        self._name = name
+        self._args = args
 
 
 WELCOME_SCREEN_KEYBOARD = [
@@ -19,9 +26,9 @@ WELCOME_SCREEN_KEYBOARD = [
 ]
 
 MAP_KEYBOARD = [
-    [("SUPERMIND", u"🌐"), ("GO_NW", u"↖️"), ("GO_N", u"⬆️"), ("GO_NE", u"↗️")],
-    [("LAB", u"🗺"), ("GO_W", u"◀️"), ("SHOWVENUES", u"🔄"), ("GO_E", u"▶️")],
-    [("AVATAR", u"🤡"), ("GO_SW", u"↙️"), ("GO_S", u"⬇️"), ("GO_SE", u"↘️")]
+    [("SUPERMIND", u"🌐"), (Act("GO", "NW"), u"↖️"), (Act("GO", "N"), u"⬆️"), (Act("GO", "NE"), u"↗️")],
+    [("LAB", u"🗺"), (Act("GO", "W"), u"◀️"), ("SHOWVENUES", u"🔄"), (Act("GO", "E"), u"▶️")],
+    [("AVATAR", u"🤡"), (Act("GO", "SW"), u"↙️"), (Act("GO", "S"), u"⬇️"), (Act("GO", "SE"), u"↘️")]
 ]
 
 
@@ -30,9 +37,9 @@ def make_keyboard_markup(table):
 
 
 def make_pretty_button(action, button, adj):
-    if not action.startswith("GO"):
+    if type(action) == str:
         return button
-    dir_id = action.split("_")[1]
+    dir_id = action._args[0]
     return adj[dir_id]._arrow + adj[dir_id]._extra_button_markup
 
 
@@ -62,17 +69,53 @@ def do_show_venues(player, bot, gamedata):
     for venue_id in loc._venues:
         if venue_id in gamedata._venues:
             for option in gamedata._venues[venue_id]._options:
-                keyboard.append([(u"VENUEACTION_" + option[0], option[0])])
+                keyboard.append([(Act(u"VENUEACTION", option[0]), option[0])])
 
     bot.send_message(player._chat_id, text, parse_mode=ParseMode.HTML,
                      reply_markup=make_keyboard_markup(keyboard))
     player.set_actions(keyboard)
 
 
+def choose_outcome(outcomes):
+    p = random.random()
+    for accu_prob, outcome in outcomes:
+        if p < accu_prob:
+            return outcome
+    assert False, "bad probabilities"
+
+
+def do_get_outcome(player, bot, gamedata, event_id, text_id, option_text, show_descr):
+    descr, options = gamedata._texts[event_id][text_id]
+    outcome = choose_outcome(options[option_text])
+    message_parts = list()
+    if show_descr:
+        message_parts.append(descr)
+    if outcome._message:
+        message_parts.append(outcome._message)
+    if outcome._outcome_id:
+        message_parts.append(outcome._outcome_id)
+    message = u"\n...\n".join(message_parts).encode("utf8")
+    bot.send_message(player._chat_id, message)
+    do_show_venues(player, bot, gamedata)
+
+
 def do_venue_action(player, bot, gamedata, venue_option):
     loc = gamedata._map[player._location_id]
-    event = loc.get_random_event(venue_option)
-    bot.send_message(player._chat_id, event)
+    event_id = loc.get_random_event(venue_option)
+    #TODO: ensure event_id is always present in texts
+    text_id = random.choice(gamedata._texts[event_id].keys())
+    descr, options = gamedata._texts[event_id][text_id]
+    if len(options) == 1:
+        do_get_outcome(player, bot, gamedata, event_id, text_id, options.keys()[0], True)
+        return
+
+    message = descr
+    keyboard = list()
+    for option_text, outcomes in options.iteritems():
+        action = Act("GETOUTCOME", event_id, text_id, option_text, False)
+        keyboard.append([(action, option_text)])
+    bot.send_message(player._chat_id, message, reply_markup=make_keyboard_markup(keyboard))
+    player.set_actions(keyboard)
 
 
 def do_go(player, bot, gamedata, dir_id):
@@ -98,6 +141,7 @@ ACTIONS = {
     "SHOWMAP": do_show_map,
     "SHOWVENUES": do_show_venues,
     "VENUEACTION": do_venue_action,
+    "GETOUTCOME": do_get_outcome,
     "CONTINUE": do_continue,
     "SUPERMIND": do_nothing,
     "LAB": do_nothing,
@@ -105,7 +149,6 @@ ACTIONS = {
 }
 
 START_LOCATION_ID = "001"
-
 
 class Player(object):
 
@@ -125,10 +168,14 @@ class Player(object):
         if text not in self._suggested_actions:
             logging.info("INVALID_ACTION\t{}\t{}".format(self._user_id, text.encode("utf8")))
             return
-        parts = self._suggested_actions[text].split("_")
-        action, args = parts[0], parts[1:] if len(parts) > 1 else None
+        if type(self._suggested_actions[text]) in {str, unicode}:
+            action, args = self._suggested_actions[text], tuple()
+        else:
+            action, args = self._suggested_actions[text]._name, self._suggested_actions[text]._args
         if action not in ACTIONS:
             raise Exception("UNIMPLEMENTED_ACTION\t{}\t{}".format(self._user_id, text.encode("utf8")))
+        ACTIONS[action](self, bot, gamedata, *args)
+        return
         if len(parts) == 1:
             ACTIONS[action](self, bot, gamedata)
         else:
@@ -173,7 +220,8 @@ class ReloadCommandHandlerCallback(object):
         self._players.clear()
         self._gamedata.update(new_game_data)
         bot.send_message(update.message.chat_id,
-                         text="Success! Restart game: /start")
+                         text=u"Game data was updated.\n{}\nRestart game: /start".format(
+                             get_gamedata_status(self._gamedata)))
 
 
 class TextHandlerCallback(object):
@@ -199,6 +247,7 @@ def run_main_loop(token, credentials, spreadsheet_id):
     logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                         level=logging.INFO, filename="load_log.tsv")
     gamedata = load_gamedata(credentials, spreadsheet_id)
+    logging.info(get_gamedata_status(gamedata).encode("utf8"))
 
     logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                         level=logging.INFO, filename="log.tsv")

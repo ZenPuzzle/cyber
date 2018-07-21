@@ -162,6 +162,16 @@ class Venue(object):
         self._options = options
 
 
+def accumulate_probs(events):
+    result = list()
+    acc_prob = 0
+    for prob, event_data in sorted(events, reverse=True):
+        acc_prob += prob
+        result.append((acc_prob, event_data))
+    assert abs(1 - acc_prob) < 0.001, "invalid accumulated prob"
+    return result
+
+
 def load_venues(sheet_data):
     rows = sheet_data["values"]
     row_index = 1
@@ -187,17 +197,57 @@ def load_venues(sheet_data):
                         events.append((float(row[4].strip("%")) * 0.01, row[5]))
                     row_index += 1
 
-                acc_prob = 0
-                options.append((option_text, list()))
-                for prob, event_id in sorted(events, reverse=True):
-                    acc_prob += prob
-                    options[-1][1].append((acc_prob, event_id))
-                    logging.info("{} {}".format(acc_prob, event_id.encode("utf8")))
-                assert abs(1 - acc_prob) < 0.001, "invalid accumulated prob for venue {}".format(venue_id.encode("utf8"))
+                options.append((option_text, accumulate_probs(events)))
             if venue_name != u"исследование":
                 assert venue_id not in venues, "duplicate venue id: {}, row: {}".format(venue_id.encode("utf8"), u" ".join(rows[row_index]).encode('utf8'))
                 venues[venue_id] = Venue(venue_name, options)
     return venues
+
+
+class TextQuestOutcome(object):
+
+    def __init__(self, cnt, message, outcome_id):
+        self._cnt = cnt
+        self._message = message
+        self._outcome_id = outcome_id
+
+
+def load_texts(sheet_data):
+    rows = sheet_data["values"]
+    row_index = 1
+    event_id2texts = dict()
+    try:
+        while row_index < len(rows):
+            event_id = rows[row_index][1]
+            assert event_id not in event_id2texts
+            event_id2texts[event_id] = dict()
+            row_index += 1
+
+            while row_index < len(rows) and len(rows[row_index]) > 2:
+                text_id, text = rows[row_index][:2]
+                assert text_id not in event_id2texts[event_id]
+                event_id2texts[event_id][text_id] = (text, dict())
+
+                while row_index < len(rows) and len(rows[row_index]) > 2 and (rows[row_index][0] in {text_id, u""}):
+                    option_text = rows[row_index][5]
+                    assert option_text not in event_id2texts[event_id][text_id]
+
+                    outcomes = list()
+                    while row_index < len(rows) and len(rows[row_index]) > 2 and (rows[row_index][0] in {text_id, u""}) and (rows[row_index][5] in {option_text, u""}):
+                        row = rows[row_index]
+                        if len(row) >= 6 and row[6]:
+                            prob = float(row[6].strip("%")) * 0.01
+                            cnt = int(row[7]) if len(row) >= 8 and row[7] else None
+                            message = row[8] if len(row) >= 9 else ""
+                            outcome_id = row[9] if len(row) >= 10 else None
+                            if prob > 0:
+                                outcomes.append((prob, TextQuestOutcome(cnt, message, outcome_id)))
+                        row_index += 1
+                    event_id2texts[event_id][text_id][1][option_text] = accumulate_probs(outcomes)
+    except Exception as e:
+        logging.error("failed to parse text row {} {}: {}".format(row_index, repr(rows[row_index]), e.message))
+        raise e
+    return event_id2texts
 
 
 class Event(object):
@@ -210,6 +260,31 @@ class Event(object):
     def __init__(self, descr, options):
         self._descr = descr
         self._options = options
+
+
+class GameData(object):
+    """
+        map: location_id -> Location dict
+        venues: venue_id -> Venue dict
+    """
+
+    def __init__(self, game_map, venues, texts):
+        self._map = game_map
+        self._venues = venues
+        self._texts = texts
+        for loc_id in game_map:
+            venue_option2events = dict()
+            for venue_id in game_map[loc_id]._venues:
+                if venue_id not in self._venues:
+                    logging.warning("Skipping unknown venue: {}".format(venue_id.encode("utf8")))
+                    continue
+                venue = self._venues[venue_id]
+                for option, events in venue._options:
+                    venue_option2events[option] = events
+            game_map[loc_id]._venue_option2events = venue_option2events
+
+    def update(self, gamedata):
+        self.__init__(gamedata._map, gamedata._venues, gamedata._texts)
 
 
 def load_spreadsheets(credentials_filename, spreadsheet_id):
@@ -227,29 +302,33 @@ def load_spreadsheets(credentials_filename, spreadsheet_id):
     return response, sheet_data
 
 
-class GameData(object):
-    """
-        map: location_id -> Location dict
-        venues: venue_id -> Venue dict
-    """
+def check_gamedata(gamedata):
+    missing_locations, missing_venues, missing_texts = set(), set(), set()
+    for loc in gamedata._map.itervalues():
+        for adj in loc._adjacent.itervalues():
+            if adj._to_id not in gamedata._map:
+                missing_locations.add(adj._to_id)
+        for venue in loc._venues:
+            if venue not in gamedata._venues:
+                missing_venues.add(venue)
+        for events in loc._venue_option2events.itervalues():
+            for _, event_id in events:
+                if event_id not in gamedata._texts:
+                    missing_texts.add(event_id)
+    return sorted(missing_locations), sorted(missing_venues), sorted(missing_texts)
 
-    def __init__(self, game_map, venues):
-        self._map = game_map
-        self._venues = venues
-        for loc_id in game_map:
-            venue_option2events = dict()
-            for venue_id in game_map[loc_id]._venues:
-                if venue_id not in self._venues:
-                    logging.warning("Skipping unknown venue: {}".format(venue_id.encode("utf8")))
-                    continue
-                venue = self._venues[venue_id]
-                for option, events in venue._options:
-                    venue_option2events[option] = events
-            game_map[loc_id]._venue_option2events = venue_option2events
 
-    def update(self, gamedata):
-        self.__init__(gamedata._map, gamedata._venues)
-
+def get_gamedata_status(gamedata):
+    missing_loc, missing_venues, missing_texts = check_gamedata(gamedata)
+    return u"\n".join([
+        u"Status check.",
+        u"Missing locations:",
+        u", ".join(missing_loc),
+        u"Missing venues:",
+        u", ".join(missing_venues),
+        u"Missing texts:",
+        u", ".join(missing_texts)
+    ])
 
 
 def load_gamedata(credentials_filename, spreadsheet_id):
@@ -269,7 +348,10 @@ def load_gamedata(credentials_filename, spreadsheet_id):
     venues = load_venues(sheet2data[u"локации"])
     venue_names = u", ".join(sorted(list(venues.iterkeys()))).encode("utf8")
     logging.info("loaded {} venues: {}".format(len(venues), venue_names))
-    return GameData(game_map, venues)
+
+    texts = load_texts(sheet2data[u"тексты"])
+    logging.info("loaded {} texts".format(len(texts)))
+    return GameData(game_map, venues, texts)
 
 
 if __name__ == "__main__":
@@ -283,3 +365,4 @@ if __name__ == "__main__":
     logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                         level=logging.INFO)
     gamedata = load_gamedata(cfg.get("auth", "credentials"), cfg.get("gamedata", "spreadsheet_id"))
+    logging.info(get_gamedata_status(gamedata))
