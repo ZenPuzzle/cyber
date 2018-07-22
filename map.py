@@ -192,7 +192,8 @@ def load_venues(sheet_data):
 
                 options.append((option_text, option_message, accumulate_probs(events)))
             if venue_name != u"исследование":
-                assert venue_id not in venues, "duplicate venue id: {}, row: {}".format(venue_id.encode("utf8"), u" ".join(rows[row_index]).encode('utf8'))
+                if venue_id in venues:
+                    logging.warning("duplicate venue id: {}, row: {}".format(venue_id.encode("utf8"), u" ".join(rows[row_index]).encode('utf8')))
                 venues[venue_id] = Venue(venue_name, options)
     return venues
 
