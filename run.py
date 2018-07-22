@@ -47,7 +47,7 @@ class ReloadCommandHandlerCallback(object):
             new_game_data = load_gamedata(self._credentials, self._spreadsheet_id)
         except Exception as e:
             bot.send_message(update.message.chat_id,
-                text="Failed to load gamedata. Details: {}".format(e.message))
+                text="Failed to load gamedata. Details: {}".format(e))
             return
 
         self._players.clear()

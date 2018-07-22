@@ -209,37 +209,34 @@ def load_texts(sheet_data):
     rows = sheet_data["values"]
     row_index = 1
     event_id2texts = dict()
-    try:
-        while row_index < len(rows):
-            event_id = rows[row_index][1]
-            assert event_id not in event_id2texts
-            event_id2texts[event_id] = dict()
-            row_index += 1
+    while row_index < len(rows):
+        event_id = rows[row_index][1]
+        if event_id in event_id2texts:
+            logging.warning("duplicate event_id {} in row {}".format(event_id.encode("utf8"), row_index))
+        event_id2texts[event_id] = dict()
+        row_index += 1
 
-            while row_index < len(rows) and len(rows[row_index]) > 2:
-                text_id, text = rows[row_index][:2]
-                assert text_id not in event_id2texts[event_id]
-                event_id2texts[event_id][text_id] = (text, dict())
+        while row_index < len(rows) and len(rows[row_index]) > 2:
+            text_id, text = rows[row_index][:2]
+            assert text_id not in event_id2texts[event_id]
+            event_id2texts[event_id][text_id] = (text, dict())
 
-                while row_index < len(rows) and len(rows[row_index]) > 2 and (rows[row_index][0] in {text_id, u""}):
-                    option_text = rows[row_index][5]
-                    assert option_text not in event_id2texts[event_id][text_id]
+            while row_index < len(rows) and len(rows[row_index]) > 2 and (rows[row_index][0] in {text_id, u""}):
+                option_text = rows[row_index][5]
+                assert option_text not in event_id2texts[event_id][text_id]
 
-                    outcomes = list()
-                    while row_index < len(rows) and len(rows[row_index]) > 2 and (rows[row_index][0] in {text_id, u""}) and (rows[row_index][5] in {option_text, u""}):
-                        row = rows[row_index]
-                        if len(row) >= 6 and row[6]:
-                            prob = float(row[6].strip("%")) * 0.01
-                            cnt = int(row[7]) if len(row) >= 8 and row[7] else None
-                            message = row[8] if len(row) >= 9 else ""
-                            outcome_id = row[9] if len(row) >= 10 else None
-                            if prob > 0:
-                                outcomes.append((prob, TextQuestOutcome(cnt, message, outcome_id)))
-                        row_index += 1
-                    event_id2texts[event_id][text_id][1][option_text] = accumulate_probs(outcomes)
-    except Exception as e:
-        logging.error("failed to parse text row {} {}: {}".format(row_index, repr(rows[row_index]), e.message))
-        raise e
+                outcomes = list()
+                while row_index < len(rows) and len(rows[row_index]) > 2 and (rows[row_index][0] in {text_id, u""}) and (rows[row_index][5] in {option_text, u""}):
+                    row = rows[row_index]
+                    if len(row) >= 6 and row[6]:
+                        prob = float(row[6].strip("%")) * 0.01
+                        cnt = int(row[7]) if len(row) >= 8 and row[7] else None
+                        message = row[8] if len(row) >= 9 else ""
+                        outcome_id = row[9] if len(row) >= 10 else None
+                        if prob > 0:
+                            outcomes.append((prob, TextQuestOutcome(cnt, message, outcome_id)))
+                    row_index += 1
+                event_id2texts[event_id][text_id][1][option_text] = accumulate_probs(outcomes)
     return event_id2texts
 
 
@@ -255,16 +252,41 @@ class Event(object):
         self._options = options
 
 
+class Item(object):
+
+    def __init__(self, name, descr, weight):
+        self._name = name
+        self._descr = descr
+        self._weight = weight
+
+
+def load_items(sheet_data):
+    rows = sheet_data["values"]
+    items = dict()
+    row_index = 2
+    while row_index < len(rows):
+        row = rows[row_index]
+        if row[0]:
+            item_id = row[0]
+            if item_id in items:
+                logging.warning("duplicate item id {} in row {}".format(
+                                item_id.encode("utf8"), row_index))
+            items[item_id] = Item(row[1], row[2], float(row[3]))
+        row_index += 1
+    return items
+
+
 class GameData(object):
     """
         map: location_id -> Location dict
         venues: venue_id -> Venue dict
     """
 
-    def __init__(self, game_map, venues, texts):
+    def __init__(self, game_map, venues, texts, items):
         self._map = game_map
         self._venues = venues
         self._texts = texts
+        self._items = items
         for loc_id in game_map:
             venue_option2events = dict()
             for venue_id in game_map[loc_id]._venues:
@@ -344,7 +366,9 @@ def load_gamedata(credentials_filename, spreadsheet_id):
 
     texts = load_texts(sheet2data[u"тексты"])
     logging.info("loaded {} texts".format(len(texts)))
-    return GameData(game_map, venues, texts)
+
+    items = load_items(sheet2data[u"Ресурсы"])
+    return GameData(game_map, venues, texts, items)
 
 
 if __name__ == "__main__":
