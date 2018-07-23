@@ -67,11 +67,19 @@ def do_get_outcome(player, bot, gamedata, event_id, text_id, option_text, show_d
         message_parts.append(descr)
     if outcome._message:
         message_parts.append(outcome._message)
-    if outcome._outcome_id:
-        message_parts.append(outcome._outcome_id)
-    message = u"\n...\n".join(message_parts).encode("utf8")
+    message = u" ".join(message_parts) + u"\n"
+    outcome_id = outcome._outcome_id
+    if outcome_id is not None:
+        if outcome_id.startswith("i_"):
+            if outcome_id not in gamedata._items:
+                player.send_message(bot, u"Unknown item: {}".format(outcome_id))
+            else:
+                message += u"...\n{} ({}) /view_{}".format(
+                    gamedata._items[outcome_id]._name, outcome._cnt, outcome_id)
+        else:
+            message += outcome_id
     keyboard = get_show_venues_keyboard(player, gamedata)
-    player.send_message(bot, message, keyboard)
+    player.send_message(bot, message.encode("utf8"), keyboard)
 
 
 def do_venue_action(player, bot, gamedata, venue_option, venue_message):

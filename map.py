@@ -234,6 +234,8 @@ def load_texts(sheet_data):
                         cnt = int(row[7]) if len(row) >= 8 and row[7] else None
                         message = row[8] if len(row) >= 9 else ""
                         outcome_id = row[9] if len(row) >= 10 else None
+                        if outcome_id is not None and outcome_id.startswith("i_") and (cnt is None or cnt == 0):
+                            logging.warning(u"Bad item count in row #{}: {}".format(row_index, cnt).encode("utf8"))
                         if prob > 0:
                             outcomes.append((prob, TextQuestOutcome(cnt, message, outcome_id)))
                     row_index += 1
@@ -259,6 +261,9 @@ class Item(object):
         self._name = name
         self._descr = descr
         self._weight = weight
+
+    def get_info(self):
+        return u"{}\n{}\nВес: {}".format(self._name, self._descr, self._weight)
 
 
 def load_items(sheet_data):
@@ -319,7 +324,7 @@ def load_spreadsheets(credentials_filename, spreadsheet_id):
 
 
 def check_gamedata(gamedata):
-    missing_locations, missing_venues, missing_texts = set(), set(), set()
+    missing_locations, missing_venues, missing_texts, missing_items = set(), set(), set(), set()
     for loc in gamedata._map.itervalues():
         for adj in loc._adjacent.itervalues():
             if adj._to_id not in gamedata._map:
@@ -331,11 +336,18 @@ def check_gamedata(gamedata):
             for _, event_id in events:
                 if event_id not in gamedata._texts:
                     missing_texts.add(event_id)
-    return sorted(missing_locations), sorted(missing_venues), sorted(missing_texts)
+    for event in gamedata._texts:
+        for text_id in gamedata._texts[event]:
+            for _, outcomes in gamedata._texts[event][text_id][1].iteritems():
+                for _, outcome in outcomes:
+                    if outcome._outcome_id is not None and outcome._outcome_id.startswith("i_"):
+                        if outcome._outcome_id not in gamedata._items:
+                            missing_items.add(outcome._outcome_id)
+    return sorted(missing_locations), sorted(missing_venues), sorted(missing_texts), sorted(missing_items)
 
 
 def get_gamedata_status(gamedata):
-    missing_loc, missing_venues, missing_texts = check_gamedata(gamedata)
+    missing_loc, missing_venues, missing_texts, missing_items = check_gamedata(gamedata)
     return u"\n".join([
         u"Status check.",
         u"Missing locations:",
@@ -343,7 +355,9 @@ def get_gamedata_status(gamedata):
         u"Missing venues:",
         u", ".join(missing_venues),
         u"Missing texts:",
-        u", ".join(missing_texts)
+        u", ".join(missing_texts),
+        u"Missing items:",
+        u", ".join(missing_items)
     ])
 
 

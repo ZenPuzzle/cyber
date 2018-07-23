@@ -10,7 +10,7 @@ import logging
 import threading
 
 from telegram import ChatAction
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler, Handler
 
 from map import load_gamedata, get_gamedata_status
 from player import Player
@@ -67,7 +67,7 @@ class TextHandlerCallback(object):
         text = update.message.text
         player = self._players.get(update.message.from_user.id)
         if player is None:
-            raise Exception("UNEXPECTED_USER_ID")
+            raise Exception("UNEXPECTED_USER_ID: {}".format(user_id.encode("utf8")))
         player.handle_text_update(text, bot, self._gamedata)
 
 class InlineKeyboardHandlerCallback(object):
@@ -82,6 +82,30 @@ class InlineKeyboardHandlerCallback(object):
         if player is None:
             raise Exception("UNEXPECTED_USER_ID: {}".format(user_id.encode("utf8")))
         player.handle_text_update(update.callback_query.data, bot, self._gamedata)
+
+
+class ViewItemCommandHandler(Handler):
+
+    def __init__(self, players, gamedata):
+        Handler.__init__(self, None)
+        self._gamedata = gamedata
+        self._players = players
+
+    @staticmethod
+    def get_item_id(update):
+        return update.message.text[len(u"/view_"):]
+
+    def check_update(self, update):
+        if update.message is not None and update.message.text.startswith(u"/view_i_"):
+            return self.get_item_id(update) in self._gamedata._items
+        return False
+
+    def handle_update(self, update, dispatcher):
+        bot = dispatcher.bot
+        player = self._players.get(update.message.from_user.id)
+        if player is None:
+            raise Exception("UNEXPECTED_USER_ID: {}".format(user_id.encode("utf8")))
+        player.send_message(bot, self._gamedata._items[self.get_item_id(update)].get_info())
 
 
 def run_main_loop(token, credentials, spreadsheet_id):
@@ -100,14 +124,15 @@ def run_main_loop(token, credentials, spreadsheet_id):
 
     players = dict()
 
-    threading.Thread(target=delayed_actions.run_routine,
-                     args=(updater.bot, players, gamedata)).start()
+#    threading.Thread(target=delayed_actions.run_routine,
+#                     args=(updater.bot, players, gamedata)).start()
 
     handlers = [
         CommandHandler("start", StartCommandHandlerCallback(players)),
         CommandHandler("reload", ReloadCommandHandlerCallback(players,
                         gamedata, credentials, spreadsheet_id)),
-        MessageHandler(Filters.text, TextHandlerCallback(players, gamedata))
+        MessageHandler(Filters.text, TextHandlerCallback(players, gamedata)),
+        ViewItemCommandHandler(players, gamedata)
 #        CallbackQueryHandler(InlineKeyboardHandlerCallback(players, gamedata))
     ]
 
