@@ -10,7 +10,7 @@ import logging
 import threading
 
 from telegram import ChatAction
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
 
 from map import load_gamedata, get_gamedata_status
 from player import Player
@@ -70,6 +70,19 @@ class TextHandlerCallback(object):
             raise Exception("UNEXPECTED_USER_ID")
         player.handle_text_update(text, bot, self._gamedata)
 
+class InlineKeyboardHandlerCallback(object):
+
+    def __init__(self, players, gamedata):
+        self._players = players
+        self._gamedata = gamedata
+
+    def __call__(self, bot, update):
+        user_id = update.callback_query.from_user.id
+        player = self._players.get(user_id)
+        if player is None:
+            raise Exception("UNEXPECTED_USER_ID: {}".format(user_id.encode("utf8")))
+        player.handle_text_update(update.callback_query.data, bot, self._gamedata)
+
 
 def run_main_loop(token, credentials, spreadsheet_id):
     logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -95,6 +108,7 @@ def run_main_loop(token, credentials, spreadsheet_id):
         CommandHandler("reload", ReloadCommandHandlerCallback(players,
                         gamedata, credentials, spreadsheet_id)),
         MessageHandler(Filters.text, TextHandlerCallback(players, gamedata))
+#        CallbackQueryHandler(InlineKeyboardHandlerCallback(players, gamedata))
     ]
 
     for handler in handlers:

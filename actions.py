@@ -108,11 +108,12 @@ def do_go(player, bot, gamedata, dir_id):
     loc = gamedata._map[player._location_id]
     transition = loc._adjacent.get(dir_id)
     if can_go(dir_id, loc._adjacent, gamedata):
-        player.set_delayed_action(bot, transition._multiplier, Act("CHANGELOC", transition._to_id))
-        keyboard = [
-            [(Act("CANCEL", Act("SHOWMAP")), u"Отмена")]
-        ]
-        player.send_message(bot, transition._descr, keyboard)
+#        player.set_delayed_action(bot, transition._multiplier, Act("CHANGELOC", transition._to_id))
+#        keyboard = [
+#            [(Act("CANCEL", Act("SHOWMAP")), u"Отмена")]
+#        ]
+        player.send_message(bot, transition._descr)
+        do_change_location(player, bot, gamedata, transition._to_id)
         return
     player.send_message(bot, transition._descr)
 

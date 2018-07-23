@@ -3,7 +3,7 @@ import time
 import threading
 from heapq import heappush
 
-from telegram import ReplyKeyboardMarkup, KeyboardButton, ParseMode
+from telegram import ReplyKeyboardMarkup, KeyboardButton, ParseMode, InlineKeyboardMarkup, InlineKeyboardButton
 
 from actions import ACTIONS, Act
 
@@ -15,6 +15,11 @@ def make_keyboard_markup(table):
         return ReplyKeyboardMarkup([[KeyboardButton(text) for _, text in row] for row in table], True)
 
 
+def make_inline_keyboard_markup(table):
+    if table is not None:
+        return InlineKeyboardMarkup([[InlineKeyboardButton(text, callback_data=text) for _, text in row] for row in table])
+
+
 class Player(object):
 
     def __init__(self, user_id, chat_id):
@@ -24,6 +29,7 @@ class Player(object):
         self._suggested_actions = None
         self._delayed_action = None
         self._lock = threading.Lock()
+        self._prev_message_id = None
 
     def set_actions(self, keyboard):
         self._suggested_actions = dict()
@@ -41,6 +47,9 @@ class Player(object):
     def do_action(self, action, bot, gamedata):
         if action._name not in ACTIONS:
             raise Exception("UNIMPLEMENTED_ACTION\t{}".format(action._name))
+        logging.info("PLAYER:{}\tACTION: {}\tSUGGESTED_ACTIONS:{}".format(
+            self._user_id, action._name,
+            u" ".join(list(self._suggested_actions.iterkeys())).encode("utf8")))
         ACTIONS[action._name](self, bot, gamedata, *action._args)
 
     def handle_text_update(self, text, bot, gamedata):
@@ -54,8 +63,8 @@ class Player(object):
         self.do_action(action, bot, gamedata)
 
     def send_message(self, bot, text, keyboard=None):
-        bot.send_message(self._chat_id, text,
+        self._prev_message_id = bot.send_message(self._chat_id, text,
                          reply_markup=make_keyboard_markup(keyboard),
-                         parse_mode=ParseMode.HTML)
+                         parse_mode=ParseMode.HTML).message_id
         if keyboard is not None:
             self.set_actions(keyboard)
