@@ -305,7 +305,7 @@ class GameData(object):
             game_map[loc_id]._venue_option2events = venue_option2events
 
     def update(self, gamedata):
-        self.__init__(gamedata._map, gamedata._venues, gamedata._texts)
+        self.__init__(gamedata._map, gamedata._venues, gamedata._texts, gamedata._items)
 
 
 def load_spreadsheets(credentials_filename, spreadsheet_id):
