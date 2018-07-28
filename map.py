@@ -12,6 +12,8 @@ from httplib2 import Http
 from apiclient.discovery import build
 from oauth2client import file, client, tools
 
+from constants import LOCATION_ID_MAX_LEN
+
 XML_NS = {
     "xls": "urn:schemas-microsoft-com:office:spreadsheet"
 }
@@ -69,6 +71,7 @@ class Location(object):
 
     def __init__(self, id, descr, size, research_rate, pos, adjacent, venues, events):
         self._id = id
+        assert type(self._id) == str and len(self._id) < LOCATION_ID_MAX_LEN
         self._descr = descr
         self._size = size
         self._research_rate = research_rate
@@ -305,7 +308,8 @@ class GameData(object):
             game_map[loc_id]._venue_option2events = venue_option2events
 
     def update(self, gamedata):
-        self.__init__(gamedata._map, gamedata._venues, gamedata._texts, gamedata._items)
+        self.__init__(gamedata._map, gamedata._venues, gamedata._texts,
+                      gamedata._items)
 
 
 def load_spreadsheets(credentials_filename, spreadsheet_id):

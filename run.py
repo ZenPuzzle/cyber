@@ -8,13 +8,16 @@ except:
     import ConfigParser as configparser
 import logging
 import threading
+import json
 
 from telegram import ChatAction
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler, Handler
 
 from map import load_gamedata, get_gamedata_status
-from player import Player
+from player import Player, fetch_player
 import delayed_actions
+from db import DB, add_player, update_player, send_message
+
 
 class StartCommandHandlerCallback(object):
 
@@ -23,19 +26,20 @@ class StartCommandHandlerCallback(object):
 
     def __call__(self, bot, update):
         user_id = update.message.from_user.id
-        if user_id in self._players:
+        player = fetch_player(user_id, self._players)
+        if player is not None:
             return
-        logging.info("NEW_USER\t{}".format(user_id))
-        self._players[user_id] = Player(user_id, update.message.chat_id)
-
+        player = Player(user_id, update.message.chat_id)
         text = "User {} is welcome in chat {}".format(user_id, update.message.chat_id)
         keyboard = [[("CONTINUE", u"Продолжить")]]
-        self._players[user_id].send_message(bot, text, keyboard)
+        with self._players.connect() as conn:
+            add_player(player, conn)
+            send_message(player, conn, bot, text, keyboard)
+        logging.info("NEW_USER\t{}".format(user_id))
 
 class ReloadCommandHandlerCallback(object):
 
-    def __init__(self, players, gamedata, credentials, spreadsheet_id):
-        self._players = players
+    def __init__(self, gamedata, credentials, spreadsheet_id):
         self._gamedata = gamedata
         self._credentials = credentials
         self._spreadsheet_id = spreadsheet_id
@@ -50,10 +54,9 @@ class ReloadCommandHandlerCallback(object):
                 text="Failed to load gamedata. Details: {}".format(e))
             return
 
-        self._players.clear()
         self._gamedata.update(new_game_data)
         bot.send_message(update.message.chat_id,
-                         text=u"Game data was updated.\n{}\nRestart game: /start".format(
+                         text=u"Game data was updated.\n{}".format(
                              get_gamedata_status(self._gamedata)))
 
 class TextHandlerCallback(object):
@@ -63,26 +66,12 @@ class TextHandlerCallback(object):
         self._gamedata = gamedata
 
     def __call__(self, bot, update):
-        chat_id = update.message.chat_id
+        user_id = update.message.from_user.id
+        player = fetch_player(user_id, self._players)
+        if player is None:
+            raise Exception("UNEXPECTED_USER_ID: {}".format(user_id))
         text = update.message.text
-        player = self._players.get(update.message.from_user.id)
-        if player is None:
-            raise Exception("UNEXPECTED_USER_ID: {}".format(user_id.encode("utf8")))
-        player.handle_text_update(text, bot, self._gamedata)
-
-class InlineKeyboardHandlerCallback(object):
-
-    def __init__(self, players, gamedata):
-        self._players = players
-        self._gamedata = gamedata
-
-    def __call__(self, bot, update):
-        user_id = update.callback_query.from_user.id
-        player = self._players.get(user_id)
-        if player is None:
-            raise Exception("UNEXPECTED_USER_ID: {}".format(user_id.encode("utf8")))
-        player.handle_text_update(update.callback_query.data, bot, self._gamedata)
-
+        player.handle_text_update(text, bot, self._gamedata, self._players)
 
 class ViewItemCommandHandler(Handler):
 
@@ -102,13 +91,14 @@ class ViewItemCommandHandler(Handler):
 
     def handle_update(self, update, dispatcher):
         bot = dispatcher.bot
-        player = self._players.get(update.message.from_user.id)
+        user_id = update.message.from_user.id
+        player = fetch_player(user_id, self._players)
         if player is None:
-            raise Exception("UNEXPECTED_USER_ID: {}".format(user_id.encode("utf8")))
-        player.send_message(bot, self._gamedata._items[self.get_item_id(update)].get_info())
+            raise Exception("UNEXPECTED_USER_ID: {}".format(user_id))
+        bot.send_message(player._chat_id, self._gamedata._items[self.get_item_id(update)].get_info())
 
 
-def run_main_loop(token, credentials, spreadsheet_id):
+def run_main_loop(token, credentials, spreadsheet_id, players):
     logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                         level=logging.INFO, filename="load_log.tsv")
     gamedata = load_gamedata(credentials, spreadsheet_id)
@@ -116,24 +106,19 @@ def run_main_loop(token, credentials, spreadsheet_id):
 
     logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                         level=logging.INFO, filename="log.tsv")
-
     updater = Updater(token=token)
     updater.bot.delayed_action_lock = threading.Lock()
     updater.bot.delayed_actions = list()
     dispatcher = updater.dispatcher
 
-    players = dict()
-
-#    threading.Thread(target=delayed_actions.run_routine,
-#                     args=(updater.bot, players, gamedata)).start()
-
     handlers = [
         CommandHandler("start", StartCommandHandlerCallback(players)),
-        CommandHandler("reload", ReloadCommandHandlerCallback(players,
-                        gamedata, credentials, spreadsheet_id)),
+        CommandHandler("reload",
+                       ReloadCommandHandlerCallback(gamedata, credentials,
+                                                    spreadsheet_id)
+                       ),
         MessageHandler(Filters.text, TextHandlerCallback(players, gamedata)),
         ViewItemCommandHandler(players, gamedata)
-#        CallbackQueryHandler(InlineKeyboardHandlerCallback(players, gamedata))
     ]
 
     for handler in handlers:
@@ -150,8 +135,10 @@ def main():
     cfg = configparser.RawConfigParser()
     cfg.read(args.cfg)
 
+    players = DB(cfg.get("player_db", "host"), cfg.get("player_db", "dbname"),
+            cfg.get("player_db", "user"), cfg.get("player_db", "password"))
     run_main_loop(cfg.get("auth", "token"), cfg.get("auth", "credentials"),
-                  cfg.get("gamedata", "spreadsheet_id"))
+                  cfg.get("gamedata", "spreadsheet_id"), players)
 
 
 if __name__ == "__main__":
