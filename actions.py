@@ -35,11 +35,29 @@ def get_show_venues_keyboard(player, gamedata):
     keyboard = [
         [SUPERMIND, LAB, AVATAR, (("SHOWMAP",), u"🔄")]
     ]
-    for venue_id in loc._venues:
+    for venue_id, _ in loc._venues:
         if venue_id in gamedata._venues:
+            keyboard.append([
+                (("SHOWVENUE", venue_id),
+                 gamedata._venues[venue_id]._name)
+            ])
+    return keyboard
+
+
+def do_show_venue(player, bot, gamedata, pdb, venue_id):
+    loc = gamedata._map[player._location_id]
+    keyboard = [
+        [SUPERMIND, LAB, AVATAR, (("SHOWMAP",), u"🔄")]
+    ]
+    text = ""
+    for vid, venue_descr in loc._venues:
+        if vid == venue_id:
+            text = venue_descr
             for option in gamedata._venues[venue_id]._options:
                 keyboard.append([(("VENUEACTION", option[0], option[1]), option[0])])
-    return keyboard
+    keyboard.append([(("SHOWVENUES",), u"Назад")])
+    with pdb.connect() as conn:
+        send_message(player, conn, bot, text, keyboard)
 
 
 def do_show_venues(player, bot, gamedata, pdb):
@@ -159,6 +177,7 @@ ACTIONS = {
     "GO": do_go,
     "SHOWMAP": do_show_map,
     "SHOWVENUES": do_show_venues,
+    "SHOWVENUE": do_show_venue,
     "VENUEACTION": do_venue_action,
     "GETOUTCOME": do_get_outcome,
     "CONTINUE": do_continue,
