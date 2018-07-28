@@ -41,6 +41,10 @@ def get_show_venues_keyboard(player, gamedata):
                 (("SHOWVENUE", venue_id),
                  gamedata._venues[venue_id]._name)
             ])
+    if loc._events:
+        keyboard.append([
+            (("EXPLORE",), u"Побродить по окрестностям")
+        ])
     return keyboard
 
 
@@ -100,13 +104,7 @@ def do_get_outcome(player, bot, gamedata, pdb, event_id, text_id, option_text, s
         send_message(player, conn, bot, message, keyboard)
 
 
-def do_venue_action(player, bot, gamedata, pdb, venue_option, venue_message):
-    with pdb.connect() as conn:
-        send_message(player, conn, bot, venue_message, [])
-
-    loc = gamedata._map[player._location_id]
-    outcomes = loc._venue_option2events[venue_option]
-    event_id = choose_outcome(outcomes)
+def resolve_event(player, bot, gamedata, pdb, event_id):
     if event_id not in gamedata._texts:
         logging.warning(u"no data for event: {}".format(event_id).encode("utf8"))
         with pdb.connect() as conn:
@@ -130,6 +128,27 @@ def do_venue_action(player, bot, gamedata, pdb, venue_option, venue_message):
 
     with pdb.connect() as conn:
         send_message(player, conn, bot, message, keyboard)
+
+
+def do_explore(player, bot, gamedata, pdb):
+    loc = gamedata._map[player._location_id]
+    venue_id = choose_outcome(loc._events)
+    if venue_id not in gamedata._venues:
+        bot.send_message(player._chat_id, "Missing venue {}".format(venue_id.encode("utf8")))
+        logging.error("Missing venue {}".format(venue_id.encode("utf8")))
+        return
+    event_id = choose_outcome(gamedata._venues[venue_id]._events)
+    resolve_event(player, bot, gamedata, pdb, event_id)
+
+
+def do_venue_action(player, bot, gamedata, pdb, venue_option, venue_message):
+    with pdb.connect() as conn:
+        send_message(player, conn, bot, venue_message, [])
+
+    loc = gamedata._map[player._location_id]
+    outcomes = loc._venue_option2events[venue_option]
+    event_id = choose_outcome(outcomes)
+    resolve_event(player, bot, gamedata, pdb, event_id)
 
 
 def can_go(dir_id, adj, gamedata):
@@ -185,5 +204,6 @@ ACTIONS = {
     "LAB": do_nothing,
     "AVATAR": do_nothing,
     "CHANGELOC": do_change_location,
-    "CANCEL": do_cancel
+    "CANCEL": do_cancel,
+    "EXPLORE": do_explore
 }

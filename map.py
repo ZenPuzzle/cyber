@@ -51,11 +51,14 @@ class Transition(object):
         self._extra_button_markup = extra_button_markup
 
 
-def get_cell_data(row):
-    cells = row.findall("xls:Cell", XML_NS)
-    if not cells:
-        return
-    return [cell.find("xls:Data", XML_NS) for cell in cells]
+def accumulate_probs(events):
+    result = list()
+    acc_prob = 0
+    for prob, event_data in sorted(events, reverse=True):
+        acc_prob += prob
+        result.append((acc_prob, event_data))
+    assert abs(1 - acc_prob) < 0.001, "invalid accumulated prob"
+    return result
 
 
 class Location(object):
@@ -141,30 +144,25 @@ class Location(object):
                 if len(row) >= 2:
                     event_name, prob = row[:2]
                     assert prob.endswith("%")
-                    prob = int(prob[:-1]) * 0.01
-                    events.append((prob, event_name))
+                    prob = int(prob.strip("%")) * 0.01
+                    if prob > 0:
+                        events.append((prob, event_name))
                 row_index += 1
+            if events:
+                events = accumulate_probs(events)
         return Location("", descr, size, research_rate, Position(x, y), adjacent, venues, events)
 
 class Venue(object):
     """
     options - dict of (descr, message, events)
         events is a sorted list of (accu prob, event_id)
+    events - sorted list of (accu prob, event_id)
     """
 
-    def __init__(self, name, options):
+    def __init__(self, name, options, events):
         self._name = name
         self._options = options
-
-
-def accumulate_probs(events):
-    result = list()
-    acc_prob = 0
-    for prob, event_data in sorted(events, reverse=True):
-        acc_prob += prob
-        result.append((acc_prob, event_data))
-    assert abs(1 - acc_prob) < 0.001, "invalid accumulated prob"
-    return result
+        self._events = events
 
 
 def load_venues(sheet_data):
@@ -174,6 +172,8 @@ def load_venues(sheet_data):
     while row_index < len(rows):
         assert len(rows[row_index]) == 1, "venue id expected, found: {}".format(" ".join(row))
         venue_id = rows[row_index][0]
+        if venue_id in venues:
+            logging.warning("duplicate venue id: {}, row: {}".format(venue_id.encode("utf8"), u" ".join(rows[row_index]).encode('utf8')))
         row_index += 1
         while row_index < len(rows) and len(rows[row_index]) > 1:
             row = rows[row_index]
@@ -195,9 +195,13 @@ def load_venues(sheet_data):
 
                 options.append((option_text, option_message, accumulate_probs(events)))
             if venue_name != u"исследование":
-                if venue_id in venues:
-                    logging.warning("duplicate venue id: {}, row: {}".format(venue_id.encode("utf8"), u" ".join(rows[row_index]).encode('utf8')))
-                venues[venue_id] = Venue(venue_name, options)
+                venues[venue_id] = Venue(venue_name, options, list())
+            else:
+                assert len(options) == 1
+                if venue_id not in venues:
+                    venues[venue_id] = Venue(venue_name, options, options[0][2])
+                else:
+                    venues[venue_id]._events = options[0][2]
     return venues
 
 
@@ -372,7 +376,11 @@ def load_gamedata(credentials_filename, spreadsheet_id):
     for title, data in sheet2data.iteritems():
         assert title not in game_map
         if title.isnumeric():
-            location = Location.parse_from_sheet(data)
+            try:
+                location = Location.parse_from_sheet(data)
+            except Exception as e:
+                logging.error("Error occured while parsing {}".format(title.encode("utf8")))
+                raise e
             location._id = title
             if location is not None:
                 game_map[location._id] = location
