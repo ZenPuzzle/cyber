@@ -37,6 +37,24 @@ class StartCommandHandlerCallback(object):
             send_message(player, conn, bot, text, keyboard)
         logging.info("NEW_USER\t{}".format(user_id))
 
+class RestartCommandHandlerCallback(object):
+
+    def __init__(self, players):
+        self._players = players
+
+    def __call__(self, bot, update):
+        user_id = update.message.from_user.id
+        player = fetch_player(user_id, self._players)
+        if player is None:
+            return
+        player = Player(user_id, update.message.chat_id)
+        text = "User {} is welcome in chat {}".format(user_id, update.message.chat_id)
+        keyboard = [[("CONTINUE", u"Продолжить")]]
+        with self._players.connect() as conn:
+            update_player(player, conn)
+            send_message(player, conn, bot, text, keyboard)
+        logging.info("NEW_USER\t{}".format(user_id))
+
 class ReloadCommandHandlerCallback(object):
 
     def __init__(self, gamedata, credentials, spreadsheet_id):
@@ -113,6 +131,7 @@ def run_main_loop(token, credentials, spreadsheet_id, players):
 
     handlers = [
         CommandHandler("start", StartCommandHandlerCallback(players)),
+        CommandHandler("restart", RestartCommandHandlerCallback(players)),
         CommandHandler("reload",
                        ReloadCommandHandlerCallback(gamedata, credentials,
                                                     spreadsheet_id)
