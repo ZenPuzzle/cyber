@@ -68,7 +68,7 @@ class Location(object):
     research_rage: float
     pos: Position
     adjacent: list of (dir_id, Transition)
-    venues: list of (venue_id, venue_descr) tuples
+    venues: list of (venue_id, venue_descr, research_threshold) tuples
     venue_option2events: unicode -> events dict
     """
 
@@ -97,7 +97,7 @@ class Location(object):
         assert rows[2][0] == u"размер квадрата"
         size = float(rows[2][1])
         assert rows[2][2] == u"скорость исследования"
-        research_rate = float(rows[2][3])
+        research_rate = int(rows[2][3])
 
         assert rows[3][0] == u"X"
         x = float(rows[3][1])
@@ -127,13 +127,12 @@ class Location(object):
         assert rows[17][0] == u"постоянные объекты"
         row_index = 18
         venues = list()
+        research_threshold = 0
         while row_index < len(rows) and rows[row_index][0] != u"случайные ивенты":
             row = rows[row_index]
             if len(row) >= 3:
-#                object_name, prob, object_descr = row[:3]
-#                assert prob.endswith("%")
-#                prob = int(prob[:-1]) * 0.1
-                venues.append((row[0], row[2]))
+                research_threshold += int(row[1].strip("%"))
+                venues.append((row[0], row[2], research_threshold))
             row_index += 1
 
         events = list()
@@ -302,7 +301,7 @@ class GameData(object):
         self._items = items
         for loc_id in game_map:
             venue_option2events = dict()
-            for venue_id, venue_descr in game_map[loc_id]._venues:
+            for venue_id, _, _ in game_map[loc_id]._venues:
                 if venue_id not in self._venues:
                     logging.warning("Skipping unknown venue: {}".format(venue_id.encode("utf8")))
                     continue
@@ -337,7 +336,7 @@ def check_gamedata(gamedata):
         for adj in loc._adjacent.itervalues():
             if adj._to_id not in gamedata._map:
                 missing_locations.add(adj._to_id)
-        for venue_id, descr in loc._venues:
+        for venue_id, _, _ in loc._venues:
             if venue_id not in gamedata._venues:
                 missing_venues.add(venue_id)
         for events in loc._venue_option2events.itervalues():

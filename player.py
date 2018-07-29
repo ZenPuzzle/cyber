@@ -9,22 +9,28 @@ from constants import *
 class Player(object):
 
     def __init__(self, user_id, chat_id, location_id="001", suggested_actions={},
-                 lore=0, raw_lore=0, lore_last_update=None):
+                 lore=0, raw_lore=0, lore_last_update=None, research_percent={}):
         self._user_id = user_id
         self._chat_id = chat_id
-        self._location_id = location_id
         self._suggested_actions = suggested_actions
         self._lore = lore
         self._raw_lore = raw_lore
         self._lore_last_update = lore_last_update
         self._used_ram = 0
         self._used_cpu = 0
+        self._research_percent = research_percent
+        self.set_location(location_id)
 
     def set_actions(self, keyboard):
         self._suggested_actions = dict()
         for row in keyboard:
             for action, button_text in row:
                 self._suggested_actions[button_text] = action
+
+    def set_location(self, loc_id):
+        self._location_id = loc_id
+        if loc_id not in self._research_percent:
+            self._research_percent[loc_id] = 0
 
     def do_action(self, action, bot, gamedata, pdb):
         name = action[0]
@@ -47,14 +53,6 @@ class Player(object):
             action = (action,)
         self.do_action(action, bot, gamedata, pdb)
 
-    @staticmethod
-    def from_row(row):
-        user_id, chat_id, location_id = row[:3]
-        suggested_actions = json.loads(row[3])
-        lore, raw_lore, lore_last_update = row[4:7]
-        return Player(user_id, chat_id, location_id, suggested_actions, lore,
-                      raw_lore, lore_last_update)
-
     def get_cpu(self):
         return int(self._lore ** 0.5)
 
@@ -67,13 +65,24 @@ class Player(object):
     def update_lore(self):
         if self._raw_lore > 0:
             time_since_update = int(time.time() - self._lore_last_update)
-            processed_lore = min(time_since_update * self.get_cpu(), self._raw_lore)
+            processed_lore = int(min(time_since_update / 60.0 * self.get_cpu(), self._raw_lore))
             self._raw_lore -= processed_lore
             self._lore += processed_lore
+
+    @staticmethod
+    def from_row(row):
+        user_id, chat_id, location_id = row[:3]
+        suggested_actions = json.loads(row[3])
+        lore, raw_lore, lore_last_update = row[4:7]
+        research_percent = json.loads(row[7])
+        return Player(user_id, chat_id, location_id, suggested_actions, lore,
+                      raw_lore, lore_last_update, research_percent)
 
     def to_row(self):
         serialized = json.dumps(self._suggested_actions)
         assert len(serialized) < SUGGESTED_ACTIONS_MAX_LEN
+        research_percent = json.dumps(self._research_percent)
+        assert len(research_percent) < SUGGESTED_ACTIONS_MAX_LEN
         self.update_lore()
         return [
             self._user_id,
@@ -82,7 +91,8 @@ class Player(object):
             serialized,
             self._lore,
             self._raw_lore,
-            self._lore_last_update
+            self._lore_last_update,
+            research_percent
         ]
 
 

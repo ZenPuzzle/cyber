@@ -23,10 +23,10 @@ with psycopg2.connect(**kwargs) as conn:
         for row in curs.fetchall():
             print(*row)
 
-#        command = "ALTER TABLE Players ADD LORE INTEGER, ADD RAW_LORE INTEGER, ADD LORE_LAST_UPDATE INTEGER"
-#        print(command)
-#        curs.execute(command)
-        command = "UPDATE Players SET LORE = 1024, RAW_LORE = 0, LORE_LAST_UPDATE = null"
+        command = "ALTER TABLE Players ADD RESEARCH_PERCENT VARCHAR(50000)"
+        print(command)
+        curs.execute(command)
+        command = "UPDATE Players SET RESEARCH_PERCENT = '{}'"
         print(command)
         curs.execute(command)
 

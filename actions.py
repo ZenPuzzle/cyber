@@ -21,6 +21,7 @@ def get_map_keyboard(dir_ids, adj):
 def do_show_map(player, bot, gamedata, pdb):
     loc = gamedata._map[player._location_id]
     text = player._location_id + u" " + loc._descr
+    text = text + u"\nИсследовано {}%".format(player._research_percent[player._location_id])
     adj = loc._adjacent
 
     keyboard = [
@@ -34,11 +35,12 @@ def do_show_map(player, bot, gamedata, pdb):
 
 def get_show_venues_keyboard(player, gamedata):
     loc = gamedata._map[player._location_id]
+    researched = player._research_percent.get(player._location_id, 0)
     keyboard = [
         [SUPERMIND, LAB, AVATAR, (("SHOWMAP",), u"🔄")]
     ]
-    for venue_id, _ in loc._venues:
-        if venue_id in gamedata._venues:
+    for venue_id, _, research_threshold in loc._venues:
+        if venue_id in gamedata._venues and researched >= research_threshold:
             keyboard.append([
                 (("SHOWVENUE", venue_id),
                  gamedata._venues[venue_id]._name)
@@ -56,7 +58,7 @@ def do_show_venue(player, bot, gamedata, pdb, venue_id):
         [SUPERMIND, LAB, AVATAR, (("SHOWMAP",), u"🔄")]
     ]
     text = ""
-    for vid, venue_descr in loc._venues:
+    for vid, venue_descr, _ in loc._venues:
         if vid == venue_id:
             text = venue_descr
             for option in gamedata._venues[venue_id]._options:
@@ -69,6 +71,7 @@ def do_show_venue(player, bot, gamedata, pdb, venue_id):
 def do_show_venues(player, bot, gamedata, pdb):
     loc = gamedata._map[player._location_id]
     text = player._location_id + u" " + loc._descr
+    text = text + u"\nИсследовано {}%".format(player._research_percent[player._location_id])
     keyboard = get_show_venues_keyboard(player, gamedata)
     with pdb.connect() as conn:
         send_message(player, conn, bot, text, keyboard)
@@ -82,7 +85,8 @@ def choose_outcome(outcomes):
     assert False, "bad probabilities"
 
 
-def do_get_outcome(player, bot, gamedata, pdb, event_id, text_id, option_text, show_descr):
+def do_get_outcome(player, bot, gamedata, pdb, event_id, text_id, option_text,
+                   show_descr, lore_gained):
     descr, options = gamedata._texts[event_id][text_id]
     outcome = choose_outcome(options[option_text])
     message_parts = list()
@@ -101,12 +105,14 @@ def do_get_outcome(player, bot, gamedata, pdb, event_id, text_id, option_text, s
                     gamedata._items[outcome_id]._name, outcome._cnt, outcome_id)
         else:
             message += outcome_id
+    if lore_gained > 0:
+        message += u"\nПолучено {} ЗМ".format(lore_gained)
     keyboard = get_show_venues_keyboard(player, gamedata)
     with pdb.connect() as conn:
         send_message(player, conn, bot, message, keyboard)
 
 
-def resolve_event(player, bot, gamedata, pdb, event_id):
+def resolve_event(player, bot, gamedata, pdb, event_id, lore_gained):
     if event_id not in gamedata._texts:
         logging.warning(u"no data for event: {}".format(event_id).encode("utf8"))
         with pdb.connect() as conn:
@@ -119,13 +125,13 @@ def resolve_event(player, bot, gamedata, pdb, event_id):
     descr, options = gamedata._texts[event_id][text_id]
     if len(options) == 1:
         do_get_outcome(player, bot, gamedata, pdb, event_id, text_id,
-                       options.keys()[0], True)
+                       options.keys()[0], True, lore_gained)
         return
 
     message = descr
     keyboard = list()
     for option_text, outcomes in options.iteritems():
-        action = ("GETOUTCOME", event_id, text_id, option_text, False)
+        action = ("GETOUTCOME", event_id, text_id, option_text, False, lore_gained)
         keyboard.append([(action, option_text)])
 
     with pdb.connect() as conn:
@@ -139,8 +145,19 @@ def do_explore(player, bot, gamedata, pdb):
         bot.send_message(player._chat_id, "Missing venue {}".format(venue_id.encode("utf8")))
         logging.error("Missing venue {}".format(venue_id.encode("utf8")))
         return
+
+    researched = min(loc._research_rate, 100 - player._research_percent[player._location_id])
+    lore_gained = int(researched * 0.1 * player.get_cpu())
+    if researched > 0:
+        with pdb.connect() as conn:
+            player.update_lore()
+            player._raw_lore += lore_gained
+            player._lore_last_update = time.time()
+            player._research_percent[player._location_id] += researched
+            update_player(player, conn)
+
     event_id = choose_outcome(gamedata._venues[venue_id]._events)
-    resolve_event(player, bot, gamedata, pdb, event_id)
+    resolve_event(player, bot, gamedata, pdb, event_id, lore_gained)
 
 
 def do_venue_action(player, bot, gamedata, pdb, venue_option, venue_message):
@@ -150,7 +167,7 @@ def do_venue_action(player, bot, gamedata, pdb, venue_option, venue_message):
     loc = gamedata._map[player._location_id]
     outcomes = loc._venue_option2events[venue_option]
     event_id = choose_outcome(outcomes)
-    resolve_event(player, bot, gamedata, pdb, event_id)
+    resolve_event(player, bot, gamedata, pdb, event_id, 0)
 
 
 def can_go(dir_id, adj, gamedata):
@@ -181,11 +198,11 @@ def do_nothing(player, bot, gamedata, pdb):
 def do_change_location(player, bot, gamedata, pdb, to_loc_id):
     cur_loc_id = player._location_id
     with pdb.connect() as conn:
-        player._location_id = to_loc_id
+        player.set_location(to_loc_id)
         try:
             update_player(player, conn)
         except Exception as e:
-            player._location_id = cur_loc_id
+            player.set_location(cur_loc_id)
             raise e
     do_show_map(player, bot, gamedata, pdb)
 
@@ -231,6 +248,7 @@ def second(cnt):
 
 
 def format_time(seconds):
+    seconds = int(seconds)
     days = seconds / 3600 / 24
     hours = seconds % (3600 * 24) / 3600
     mins = seconds % 3600 / 60
@@ -252,8 +270,8 @@ def do_show_mind(player, bot, gamedata, pdb):
         player.get_name(), player._lore, player._raw_lore
     )
     if player._raw_lore > 0:
-        text += u", обработка займёт {}\n".format(
-            format_time(player._raw_lore * 1. / player.get_cpu())
+        text += u", время обработки: {}\n".format(
+            format_time(player._raw_lore * 1. / player.get_cpu() * 60)
         )
     else:
         text += u"\n"
