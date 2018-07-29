@@ -1,10 +1,7 @@
 #!/usr/bin/env python
 # coding: utf8
 from __future__ import print_function
-from xml.etree import ElementTree as ET
 import logging
-import random
-import json
 import argparse
 import ConfigParser as configparser
 
@@ -13,10 +10,6 @@ from apiclient.discovery import build
 from oauth2client import file, client, tools
 
 from constants import LOCATION_ID_MAX_LEN
-
-XML_NS = {
-    "xls": "urn:schemas-microsoft-com:office:spreadsheet"
-}
 
 DIR2DIR_ID = {
     u"север": "N",
