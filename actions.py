@@ -5,6 +5,8 @@ import logging
 
 from db import send_message, update_player
 
+from constants import *
+
 SUPERMIND = (("SUPERMIND",), u"🌐")
 LAB = (("LAB",), u"🗺")
 AVATAR = (("AVATAR",), u"🤡")
@@ -150,7 +152,7 @@ def do_explore(player, bot, gamedata, pdb):
     lore_gained = int(researched * 0.1 * player.get_cpu())
     if researched > 0:
         with pdb.connect() as conn:
-            player.update_lore()
+            player.update_lore(gamedata)
             player._raw_lore += lore_gained
             player._lore_last_update = time.time()
             player._research_percent[player._location_id] += researched
@@ -265,20 +267,46 @@ def format_time(seconds):
 
 
 def do_show_mind(player, bot, gamedata, pdb):
-    player.update_lore()
-    text = u"{}\nЗнание Мира: {}\nСырое ЗМ: {}".format(
-        player.get_name(), player._lore, player._raw_lore
-    )
-    if player._raw_lore > 0:
-        text += u", время обработки: {}\n".format(
-            format_time(player._raw_lore * 1. / player.get_cpu() * 60)
+    with pdb.connect() as conn:
+        player.update_lore(gamedata)
+        text = u"{}\nЗнание Мира: {}\nСырое ЗМ: {}".format(
+            player.get_name(), player._lore, player._raw_lore
         )
-    else:
+        if player._raw_lore > 0:
+            text += u", время обработки: {}\n".format(
+                format_time(player._raw_lore * 1. / player.get_cpu() * 60)
+            )
+        else:
+            text += u"\n"
+        text += u"""Использование памяти: {} / {}\nЗагрузка процессора: {} / {}\n""".format(
+                player.get_used_ram(gamedata), player.get_ram(),
+                player.get_used_cpu(gamedata), player.get_cpu()
+                )
+        text += u"Запущенных программ: {}\n".format(len(player._running_soft))
+        text += u"Известных программ: {} /software".format(
+            len(gamedata._programs)
+        )
+        if player._compiling_soft != []:
+            program = gamedata._programs[player._compiling_soft[0]]
+            cpu, start_time = player._compiling_soft[1:3]
+            ts = time.time()
+            progress = (ts - start_time) / (program._compile_time / cpu * TICK_DURATION)
+            progress = int(progress * 100)
+            text += u"\nКомпиляция {} выполнена на {}%".format(program._name, progress)
+        send_message(player, conn, bot, text)
+
+
+def do_show_software(player, bot, gamedata, pdb):
+    text = u""
+    if player._running_soft:
+        text = u"Запущенные программы:\n"
+        for program_id in player._running_soft:
+            text += gamedata._programs[program_id]._name + u" /view_{}\n".format(program_id)
         text += u"\n"
-    text += u"""Использование памяти: {} / {}\nЗагрузка процессора: {} / {}""".format(
-               player._used_ram, player.get_ram(),
-               player._used_cpu, player.get_cpu()
-               )
+    text += u"Доступные к установке программы:\n"
+    for program_id in gamedata._programs:
+        if program_id not in player._running_soft and (len(player._compiling_soft) == 0 or player._compiling_soft[0] != program_id):
+            text += gamedata._programs[program_id]._name + u" /view_{} /compile_{}\n".format(program_id, program_id)
     bot.send_message(player._chat_id, text)
 
 

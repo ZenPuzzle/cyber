@@ -17,6 +17,7 @@ from map import load_gamedata, get_gamedata_status
 from player import Player, fetch_player
 import delayed_actions
 from db import DB, add_player, update_player, send_message
+from actions import do_show_software
 
 
 class StartCommandHandlerCallback(object):
@@ -103,9 +104,8 @@ class ViewItemCommandHandler(Handler):
         return update.message.text[len(u"/view_"):]
 
     def check_update(self, update):
-        if update.message is not None and update.message.text.startswith(u"/view_i_"):
-            return self.get_item_id(update) in self._gamedata._items
-        return False
+        entity_id = self.get_item_id(update)
+        return entity_id in self._gamedata._items or entity_id in self._gamedata._programs
 
     def handle_update(self, update, dispatcher):
         bot = dispatcher.bot
@@ -113,7 +113,58 @@ class ViewItemCommandHandler(Handler):
         player = fetch_player(user_id, self._players)
         if player is None:
             raise Exception("UNEXPECTED_USER_ID: {}".format(user_id))
-        bot.send_message(player._chat_id, self._gamedata._items[self.get_item_id(update)].get_info())
+        entity_id = self.get_item_id(update)
+        if entity_id in self._gamedata._items:
+            text = self._gamedata._items[entity_id].get_info()
+        elif entity_id in self._gamedata._programs:
+            text = self._gamedata._programs[entity_id].get_info()
+        bot.send_message(player._chat_id, text)
+
+class CompileCommandHandler(Handler):
+
+    def __init__(self, players, gamedata):
+        Handler.__init__(self, None)
+        self._gamedata = gamedata
+        self._players = players
+
+    @staticmethod
+    def get_item_id(update):
+        return update.message.text[len(u"/compile_"):]
+
+    def check_update(self, update):
+        entity_id = self.get_item_id(update)
+        return entity_id in self._gamedata._programs
+
+    def handle_update(self, update, dispatcher):
+        bot = dispatcher.bot
+        user_id = update.message.from_user.id
+        player = fetch_player(user_id, self._players)
+        if player is None:
+            raise Exception("UNEXPECTED_USER_ID: {}".format(user_id))
+        with self._players.connect() as conn:
+            player.update_lore(self._gamedata)
+            if player._compiling_soft != []:
+                bot.send_message(player._chat_id, u"Другая программа ещё компилируется")
+            else:
+                entity_id = self.get_item_id(update)
+                player.compile_program(entity_id, self._gamedata)
+                update_player(player, conn)
+                send_message(player, conn, bot,
+                             u"Компилирую {}".format(self._gamedata._programs[entity_id]._name))
+
+class SoftwareCommandHandlerCallback(object):
+
+    def __init__(self, players, gamedata):
+        self._players = players
+        self._gamedata = gamedata
+
+    def __call__(self, bot, update):
+        user_id = update.message.from_user.id
+        player = fetch_player(user_id, self._players)
+        if player is None:
+            return
+        player = Player(user_id, update.message.chat_id)
+        do_show_software(player, bot, self._gamedata, self._players)
 
 
 def run_main_loop(token, credentials, spreadsheet_id, players):
@@ -136,8 +187,10 @@ def run_main_loop(token, credentials, spreadsheet_id, players):
                        ReloadCommandHandlerCallback(gamedata, credentials,
                                                     spreadsheet_id)
                        ),
+        CommandHandler("software", SoftwareCommandHandlerCallback(players, gamedata)),
         MessageHandler(Filters.text, TextHandlerCallback(players, gamedata)),
-        ViewItemCommandHandler(players, gamedata)
+        ViewItemCommandHandler(players, gamedata),
+        CompileCommandHandler(players, gamedata)
     ]
 
     for handler in handlers:

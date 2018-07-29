@@ -271,7 +271,7 @@ def load_items(sheet_data):
     row_index = 2
     while row_index < len(rows):
         row = rows[row_index]
-        if row[0]:
+        if row[0] and len(row) >= 4:
             item_id = row[0]
             if item_id in items:
                 logging.warning("duplicate item id {} in row {}".format(
@@ -280,6 +280,31 @@ def load_items(sheet_data):
         row_index += 1
     return items
 
+class Program(object):
+
+    def __init__(self, name, descr, ram_usage, compile_time, cpu_usage):
+        self._name = name
+        self._descr = descr
+        self._ram_usage = ram_usage
+        self._compile_time = compile_time
+        self._cpu_usage = cpu_usage
+
+    def get_info(self):
+        text = self._name + u"\n"
+        text += self._descr + u"\n"
+        text += u"Потребление памяти: {}\n".format(self._ram_usage)
+        text += u"Потребление ЦПУ: {}\n".format(self._cpu_usage)
+        return text
+
+
+def load_programs(sheet_data):
+    rows = sheet_data["values"]
+    programs = dict()
+    for row in rows[1:]:
+        assert row[0] not in programs
+        programs[row[0]] = Program(row[1], row[2], int(row[3]), int(row[4]), int(row[5]))
+    return programs
+
 
 class GameData(object):
     """
@@ -287,7 +312,7 @@ class GameData(object):
         venues: venue_id -> Venue dict
     """
 
-    def __init__(self, game_map, venues, texts, items):
+    def __init__(self, game_map, venues, texts, items, programs):
         self._map = game_map
         self._venues = venues
         self._texts = texts
@@ -302,10 +327,11 @@ class GameData(object):
                 for option, _, events in venue._options:
                     venue_option2events[option] = events
             game_map[loc_id]._venue_option2events = venue_option2events
+        self._programs = programs
 
     def update(self, gamedata):
         self.__init__(gamedata._map, gamedata._venues, gamedata._texts,
-                      gamedata._items)
+                      gamedata._items, gamedata._programs)
 
 
 def load_spreadsheets(credentials_filename, spreadsheet_id):
@@ -387,7 +413,8 @@ def load_gamedata(credentials_filename, spreadsheet_id):
     logging.info("loaded {} texts".format(len(texts)))
 
     items = load_items(sheet2data[u"Ресурсы"])
-    return GameData(game_map, venues, texts, items)
+    programs = load_programs(sheet2data[u"программы"])
+    return GameData(game_map, venues, texts, items, programs)
 
 
 if __name__ == "__main__":
