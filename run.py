@@ -147,10 +147,12 @@ class CompileCommandHandler(Handler):
                 bot.send_message(player._chat_id, u"Другая программа ещё компилируется")
             else:
                 entity_id = self.get_item_id(update)
-                player.compile_program(entity_id, self._gamedata)
-                update_player(player, conn)
-                send_message(player, conn, bot,
-                             u"Компилирую {}".format(self._gamedata._programs[entity_id]._name))
+                if player.compile_program(entity_id, self._gamedata):
+                    update_player(player, conn)
+                    send_message(player, conn, bot,
+                                u"Компилирую {}".format(self._gamedata._programs[entity_id]._name))
+                else:
+                    bot.send_message(player._chat_id, u"Недостаточно ЦП для старта компиляции")
 
 class SoftwareCommandHandlerCallback(object):
 

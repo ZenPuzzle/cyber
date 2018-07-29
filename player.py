@@ -85,7 +85,10 @@ class Player(object):
     def compile_program(self, entity_id, gamedata):
         ts = time.time()
         free_cpu = self.get_cpu() - self.get_used_cpu(gamedata)
+        if free_cpu < 1:
+            return False
         self._compiling_soft = [entity_id, free_cpu / 2, ts, ts]
+        return True
 
     def update_lore(self, gamedata):
         ts = time.time()
