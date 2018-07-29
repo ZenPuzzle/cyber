@@ -10,7 +10,7 @@ from constants import *
 class Player(object):
 
     def __init__(self, user_id, chat_id, location_id="001", suggested_actions={},
-                 lore=0, raw_lore=0, lore_last_update=None, research_percent={},
+                 lore=1024, raw_lore=0, lore_last_update=None, research_percent={},
                  running_soft=set(), known_soft=set(), compiling_soft=[]):
         self._user_id = user_id
         self._chat_id = chat_id
