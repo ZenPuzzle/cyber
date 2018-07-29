@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-#coding: utf8
+# coding: utf8
 from __future__ import print_function
 from xml.etree import ElementTree as ET
 import logging

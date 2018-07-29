@@ -1,5 +1,6 @@
-#coding: utf8
+# coding: utf8
 import random
+import logging
 
 from db import send_message, update_player
 
