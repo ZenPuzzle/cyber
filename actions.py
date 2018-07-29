@@ -1,5 +1,6 @@
 # coding: utf8
 import random
+import time
 import logging
 
 from db import send_message, update_player
@@ -193,6 +194,76 @@ def do_cancel(player, bot, gamedata, pdb, prev_action):
     player.do_action(prev_action, bot, gamedata, pdb)
 
 
+def day(cnt):
+    rest = cnt % 10
+    if rest == 1:
+        return u"день"
+    if 1 < rest < 5:
+        return u"дня"
+    return u"дней"
+
+
+def hour(cnt):
+    rest = cnt % 10
+    if rest == 1:
+        return u"час"
+    if 1 < rest < 5:
+        return u"часа"
+    return u"часов"
+
+
+def minute(cnt):
+    rest = cnt % 10
+    if rest == 1:
+        return u"минута"
+    if 1 < rest < 5:
+        return u"минуты"
+    return u"минут"
+
+
+def second(cnt):
+    rest = cnt % 10
+    if rest == 1:
+        return u"секунда"
+    if 1 < rest < 5:
+        return u"секунды"
+    return u"секунд"
+
+
+def format_time(seconds):
+    days = seconds / 3600 / 24
+    hours = seconds % (3600 * 24) / 3600
+    mins = seconds % 3600 / 60
+    seconds = seconds % 60
+    parts = []
+    if days > 0:
+        parts.append(u"{} {}".format(days, day(days)))
+    if hours > 0 or days > 0:
+        parts.append(u"{} {}".format(hours, hour(hours)))
+    if mins > 0 or hours > 0 or days > 0:
+        parts.append(u"{} {}".format(mins, minute(mins)))
+    parts.append(u"{} {}".format(seconds, second(seconds)))
+    return u", ".join(parts)
+
+
+def do_show_mind(player, bot, gamedata, pdb):
+    player.update_lore()
+    text = u"{}\nЗнание Мира: {}\nСырое ЗМ: {}".format(
+        player.get_name(), player._lore, player._raw_lore
+    )
+    if player._raw_lore > 0:
+        text += u", обработка займёт {}\n".format(
+            format_time(player._raw_lore * 1. / player.get_cpu())
+        )
+    else:
+        text += u"\n"
+    text += u"""Использование памяти: {} / {}\nЗагрузка процессора: {} / {}""".format(
+               player._used_ram, player.get_ram(),
+               player._used_cpu, player.get_cpu()
+               )
+    bot.send_message(player._chat_id, text)
+
+
 ACTIONS = {
     "GO": do_go,
     "SHOWMAP": do_show_map,
@@ -201,7 +272,7 @@ ACTIONS = {
     "VENUEACTION": do_venue_action,
     "GETOUTCOME": do_get_outcome,
     "CONTINUE": do_continue,
-    "SUPERMIND": do_nothing,
+    "SUPERMIND": do_show_mind,
     "LAB": do_nothing,
     "AVATAR": do_nothing,
     "CHANGELOC": do_change_location,
