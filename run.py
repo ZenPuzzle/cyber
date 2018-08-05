@@ -138,7 +138,7 @@ def run_main_loop(token, credentials, spreadsheet_id, players):
     for handler in handlers:
         dispatcher.add_handler(handler)
 
-    updater.start_polling()
+    updater.start_polling(read_latency=0.1, timeout=0.1)
 
 
 def main():
