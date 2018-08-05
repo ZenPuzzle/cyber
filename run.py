@@ -17,7 +17,6 @@ from map import load_gamedata, get_gamedata_status
 from player import Player, fetch_player
 import delayed_actions
 from db import DB, add_player, update_player, send_message
-from actions import do_show_software
 
 
 class StartCommandHandlerCallback(object):
