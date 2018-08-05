@@ -293,7 +293,7 @@ class Program(object):
         text = self._name + u"\n"
         text += self._descr + u"\n"
         text += u"Потребление памяти: {}\n".format(self._ram_usage)
-        text += u"Потребление ЦПУ: {}\n".format(self._cpu_usage)
+        text += u"Потребление CPU: {}\n".format(self._cpu_usage)
         return text
 
 

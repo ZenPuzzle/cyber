@@ -269,6 +269,7 @@ def format_time(seconds):
 def do_show_mind(player, bot, gamedata, pdb):
     with pdb.connect() as conn:
         player.update_lore(gamedata)
+        update_player(player, conn)
         text = u"{}\nЗнание Мира: {}\nСырое ЗМ: {}".format(
             player.get_name(), player._lore, player._raw_lore
         )
@@ -278,12 +279,13 @@ def do_show_mind(player, bot, gamedata, pdb):
             )
         else:
             text += u"\n"
-        text += u"""Использование памяти: {} / {}\nЗагрузка процессора: {} / {}\n""".format(
+        text += u"""Использование памяти: {} / {}\nЗагрузка CPU: {} / {}\n""".format(
                 player.get_used_ram(gamedata), player.get_ram(),
                 player.get_used_cpu(gamedata), player.get_cpu()
                 )
         text += u"Запущенных программ: {}\n".format(len(player._running_soft))
-        text += u"Известных программ: {} /software".format(
+        text += u"Скомпилированных программ: {}\n".format(len(player._installed_soft))
+        text += u"Новых программ: {} /software".format(
             len(gamedata._programs)
         )
         if player._compiling_soft != []:
@@ -297,17 +299,94 @@ def do_show_mind(player, bot, gamedata, pdb):
 
 
 def do_show_software(player, bot, gamedata, pdb):
+    with pdb.connect() as conn:
+        player.update_lore(gamedata)
+        update_player(player, conn)
     text = u""
     if player._running_soft:
-        text = u"Запущенные программы:\n"
+        text += u"Запущенные программы:\n"
         for program_id in player._running_soft:
-            text += gamedata._programs[program_id]._name + u" /view_{}\n".format(program_id)
+            text += gamedata._programs[program_id]._name + u" /view_{} /stop_{}\n".format(program_id, program_id)
         text += u"\n"
-    text += u"Доступные к установке программы:\n"
+    if player._installed_soft:
+        text += u"Скомпилированные программы:\n"
+        for program_id in player._installed_soft:
+            text += gamedata._programs[program_id]._name + u" /view_{} /run_{}\n".format(program_id, program_id)
+        text += u"\n"
+    text += u"Новые программы:\n"
     for program_id in gamedata._programs:
-        if program_id not in player._running_soft and (len(player._compiling_soft) == 0 or player._compiling_soft[0] != program_id):
+        if program_id not in player._running_soft and (len(player._compiling_soft) == 0 or player._compiling_soft[0] != program_id) and program_id not in player._installed_soft:
             text += gamedata._programs[program_id]._name + u" /view_{} /compile_{}\n".format(program_id, program_id)
     bot.send_message(player._chat_id, text)
+
+
+def do_compile_program(player, bot, gamedata, pdb, program_id):
+    with pdb.connect() as conn:
+        player.update_lore(gamedata)
+        update_player(player, conn)
+        if player._compiling_soft != []:
+            bot.send_message(player._chat_id, u"Другая программа ещё компилируется")
+        else:
+            if player.compile_program(program_id, gamedata):
+                update_player(player, conn)
+                send_message(player, conn, bot,
+                            u"Компилирую {}".format(gamedata._programs[program_id]._name))
+            else:
+                bot.send_message(player._chat_id,
+                                 u"Недостаточно ЦП для начала компиляции")
+
+
+def do_run_program(player, bot, gamedata, pdb, program_id):
+    with pdb.connect() as conn:
+        player.update_lore(gamedata)
+        update_player(player, conn)
+        if program_id not in player._installed_soft:
+            bot.send_message(player._chat_id, u"Нужно сперва скомпилировать программу")
+            return
+        program = gamedata._programs[program_id]
+        cpu_ok = (player.get_cpu() - player.get_used_cpu(gamedata)) >= program._cpu_usage
+        ram_ok = (player.get_ram() - player.get_used_ram(gamedata)) >= program._ram_usage
+        if cpu_ok and ram_ok:
+            player._running_soft.add(program_id)
+            player._installed_soft.remove(program_id)
+            update_player(player, conn)
+            bot.send_message(player._chat_id,
+                             u"Запускаю {}".format(gamedata._programs[program_id]._name))
+        else:
+            text = u"Не удалось запустить программу\n"
+            if not cpu_ok:
+                text += u"Недостаточно CPU\n"
+            if not ram_ok:
+                text += u"Недостаточно свободной памяти\n"
+            bot.send_message(player._chat_id, text)
+
+
+def do_stop_program(player, bot, gamedata, pdb, program_id):
+    with pdb.connect() as conn:
+        player.update_lore(gamedata)
+        update_player(player, conn)
+        program = gamedata._programs.get(program_id)
+        if program is None:
+            return
+        if program_id not in player._running_soft:
+            bot.send_message(player._chat_id,
+                             u"Программа {} не запущена".format(program._name))
+            return
+        player._running_soft.remove(program_id)
+        player._installed_soft.add(program_id)
+        update_player(player, conn)
+        bot.send_message(player._chat_id,
+                         u"Программа {} остановлена".format(program._name))
+
+
+def do_view_info(player, bot, gamedata, pdb, entity_id):
+    text = None
+    if entity_id in gamedata._items:
+        text = gamedata._items[entity_id].get_info()
+    elif entity_id in gamedata._programs:
+        text = gamedata._programs[entity_id].get_info()
+    if text is not None:
+        bot.send_message(player._chat_id, text)
 
 
 ACTIONS = {
@@ -324,4 +403,12 @@ ACTIONS = {
     "CHANGELOC": do_change_location,
     "CANCEL": do_cancel,
     "EXPLORE": do_explore
+}
+
+COMMANDS = {
+    "/compile": do_compile_program,
+    "/software": do_show_software,
+    "/run": do_run_program,
+    "/view": do_view_info,
+    "/stop": do_stop_program
 }

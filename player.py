@@ -3,7 +3,7 @@ import json
 import random
 import time
 
-from actions import ACTIONS
+from actions import ACTIONS, COMMANDS
 from constants import *
 
 
@@ -11,7 +11,8 @@ class Player(object):
 
     def __init__(self, user_id, chat_id, location_id="001", suggested_actions={},
                  lore=1024, raw_lore=0, lore_last_update=None, research_percent={},
-                 running_soft=set(), known_soft=set(), compiling_soft=[]):
+                 running_soft=set(), known_soft=set(), compiling_soft=[],
+                 installed_soft=set()):
         self._user_id = user_id
         self._chat_id = chat_id
         self._suggested_actions = suggested_actions
@@ -25,6 +26,7 @@ class Player(object):
         self._known_soft = known_soft
         self._running_soft = running_soft
         self._compiling_soft = compiling_soft
+        self._installed_soft = installed_soft
 
     def set_actions(self, keyboard):
         self._suggested_actions = dict()
@@ -40,14 +42,18 @@ class Player(object):
     def do_action(self, action, bot, gamedata, pdb):
         name = action[0]
         args = action[1:] if len(action) > 1 else tuple()
-        if name not in ACTIONS:
+        if name not in ACTIONS and name not in COMMANDS:
             raise Exception("UNIMPLEMENTED_ACTION\t{}".format(name))
+        assert name not in ACTIONS or name not in COMMANDS
         logging.info("PLAYER: {}\tACTION: {}\tSUGGESTED_ACTIONS:{}".format(
             self._user_id, name,
             json.dumps(self._suggested_actions,
                        ensure_ascii=False).encode("utf8"))
         )
-        ACTIONS[name](self, bot, gamedata, pdb, *args)
+        if name in ACTIONS:
+            ACTIONS[name](self, bot, gamedata, pdb, *args)
+        elif name in COMMANDS:
+            COMMANDS[name](self, bot, gamedata, pdb, *args)
 
     def handle_text_update(self, text, bot, gamedata, pdb):
         if text not in self._suggested_actions:
@@ -102,7 +108,7 @@ class Player(object):
             compile_time = gamedata._programs[program]._compile_time
             finish_ts = start_time + compile_time / cpu * TICK_DURATION
             if ts >= finish_ts:
-                self._running_soft.add(program)
+                self._installed_soft.add(program)
                 self._compiling_soft = []
 
 #            compile_check_period = 12 * TICK_DURATION
@@ -129,9 +135,10 @@ class Player(object):
         running_soft = set(json.loads(row[8]))
         known_soft = set(json.loads(row[9]))
         compiling_soft = json.loads(row[10])
+        installed_soft = set(json.loads(row[11]))
         return Player(user_id, chat_id, location_id, suggested_actions, lore,
                       raw_lore, lore_last_update, research_percent,
-                      running_soft, known_soft, compiling_soft)
+                      running_soft, known_soft, compiling_soft, installed_soft)
 
     def to_row(self):
         serialized = json.dumps(self._suggested_actions)
@@ -149,7 +156,8 @@ class Player(object):
             research_percent,
             json.dumps(list(self._running_soft)),
             json.dumps(list(self._known_soft)),
-            json.dumps(self._compiling_soft)
+            json.dumps(self._compiling_soft),
+            json.dumps(list(self._installed_soft))
         ]
 
 
