@@ -6,13 +6,71 @@ import time
 from actions import ACTIONS, COMMANDS
 from constants import *
 
+class Container(object):
+
+    def __init__(self, items):
+        self._max_weight = 15
+        self._items = items
+
+    def insert_item(self, item_id, count):
+        for index, pair in enumerate(self._items):
+            cur_item_id, cur_count = pair
+            if item_id == cur_item_id:
+                self._items[index][1] += count
+                return
+        self._items.append([item_id, count])
+
+    def remove_item(self, item_id, count):
+        for index, pair in enumerate(self._items):
+            cur_item_id, cur_count = pair
+            if item_id == cur_item_id:
+                if self._items[index][1] < count:
+                    raise Exception("trying to remove more than have")
+                self._items[index][1] -= count
+                if self._items[index][1] == 0:
+                    del self._items[index]
+                return
+        raise Exception("trying to remove unexisting item {}".format(item_id))
+
+    def get_count(self, item_id):
+        for index, pair in enumerate(self._items):
+            cur_item_id, cur_count = pair
+            if item_id == cur_item_id:
+                return self._items[index][1]
+        return 0
+
+    def get_weight(self, gamedata):
+        result = 0
+        for item_id, count in self._items:
+            result += gamedata._items[item_id]._weight * count
+        return result
+
+    def to_dict(self):
+        return {"items": self._items}
+
+    @staticmethod
+    def from_dict(d):
+        return Container(d["items"])
+
+class Avatar(object):
+
+    def __init__(self, backpack=Container([])):
+        self._backpack = backpack
+
+    def to_dict(self):
+        return {"backpack": self._backpack.to_dict()}
+
+    @staticmethod
+    def from_dict(d):
+        return Avatar(Container.from_dict(d["backpack"]))
+
 
 class Player(object):
 
     def __init__(self, user_id, chat_id, location_id="001", suggested_actions={},
                  lore=1024, raw_lore=0, lore_last_update=None, research_percent={},
                  running_soft=set(), known_soft=set(), compiling_soft=[],
-                 installed_soft=set()):
+                 installed_soft=set(), avatar=Avatar(), known_entities=set()):
         self._user_id = user_id
         self._chat_id = chat_id
         self._suggested_actions = suggested_actions
@@ -27,6 +85,8 @@ class Player(object):
         self._running_soft = running_soft
         self._compiling_soft = compiling_soft
         self._installed_soft = installed_soft
+        self._avatar = avatar
+        self._known_entities = known_entities
 
     def set_actions(self, keyboard):
         self._suggested_actions = dict()
@@ -88,6 +148,15 @@ class Player(object):
     def get_name(self):
         return u"id_{}".format(self._user_id)
 
+    def get_lore_for_new_entity(self, entity_id, gamedata):
+        if entity_id in self._known_entities:
+            return 0
+        d = 2.0 * (300 * len(gamedata._map) - 10 * len(gamedata._items)) / len(gamedata._items) / (len(gamedata._items) + 1)
+        gained = int(10 + len(self._known_entities) * d)
+        self._known_entities.add(entity_id)
+        self._raw_lore += gained
+        return gained
+
     def compile_program(self, entity_id, gamedata):
         ts = time.time()
         free_cpu = self.get_cpu() - self.get_used_cpu(gamedata)
@@ -136,9 +205,12 @@ class Player(object):
         known_soft = set(json.loads(row[9]))
         compiling_soft = json.loads(row[10])
         installed_soft = set(json.loads(row[11]))
+        avatar = Avatar.from_dict(json.loads(row[12])) if row[12] is not None else None
+        known_entities = set(json.loads(row[13]))
         return Player(user_id, chat_id, location_id, suggested_actions, lore,
                       raw_lore, lore_last_update, research_percent,
-                      running_soft, known_soft, compiling_soft, installed_soft)
+                      running_soft, known_soft, compiling_soft, installed_soft,
+                      avatar, known_entities)
 
     def to_row(self):
         serialized = json.dumps(self._suggested_actions)
@@ -157,7 +229,9 @@ class Player(object):
             json.dumps(list(self._running_soft)),
             json.dumps(list(self._known_soft)),
             json.dumps(self._compiling_soft),
-            json.dumps(list(self._installed_soft))
+            json.dumps(list(self._installed_soft)),
+            json.dumps(self._avatar.to_dict()) if self._avatar is not None else None,
+            json.dumps(list(self._known_entities))
         ]
 
 

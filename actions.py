@@ -103,14 +103,32 @@ def do_get_outcome(player, bot, gamedata, pdb, event_id, text_id, option_text,
             if outcome_id not in gamedata._items:
                 bot.send_message(player._chat_id, u"Unknown item: {}".format(outcome_id))
             else:
-                message += u"...\n{} ({}) /view_{}".format(
-                    gamedata._items[outcome_id]._name, outcome._cnt, outcome_id)
+                item = gamedata._items[outcome_id]
+                message += u"...\nНаходка! {} ({}) /view_{}".format(
+                    item._name, outcome._cnt, outcome_id
+                )
+                backpack = player._avatar._backpack
+                free_weight= backpack._max_weight - backpack.get_weight(gamedata)
+                taken_count = int(min(free_weight / item._weight, outcome._cnt))
+                if taken_count > 0:
+                    backpack.insert_item(outcome_id, taken_count)
+                    message += u"\n{} ({}) помещён(-а) в рюкзак".format(
+                        item._name, taken_count
+                    )
+                if taken_count < outcome._cnt:
+                    message += u"\n{} {} не поместился(-ась) в рюкзак".format(
+                        outcome._cnt - taken_count, item._name
+                    )
+                lore_for_new_item = player.get_lore_for_new_entity(outcome_id, gamedata)
+                if lore_for_new_item > 0:
+                    message += u"\nПолучено {} ЗМ за находку".format(lore_for_new_item)
         else:
             message += outcome_id
     if lore_gained > 0:
-        message += u"\nПолучено {} ЗМ".format(lore_gained)
+        message += u"\nПолучено {} ЗМ за исследование".format(lore_gained)
     keyboard = get_show_venues_keyboard(player, gamedata)
     with pdb.connect() as conn:
+        update_player(player, conn)
         send_message(player, conn, bot, message, keyboard)
 
 
@@ -389,6 +407,16 @@ def do_view_info(player, bot, gamedata, pdb, entity_id):
         bot.send_message(player._chat_id, text)
 
 
+def do_view_avatar(player, bot, gamedata, pdb):
+    backpack = player._avatar._backpack
+    message = u"Предметы в рюкзаке:\n"
+    for item, count in backpack._items:
+        message += u"{} ({}) /view_{}\n".format(gamedata._items[item]._name, count, item)
+    weight = backpack.get_weight(gamedata)
+    message += u"Вес: {} / {}".format(weight, backpack._max_weight)
+    bot.send_message(player._chat_id, message)
+
+
 ACTIONS = {
     "GO": do_go,
     "SHOWMAP": do_show_map,
@@ -399,7 +427,7 @@ ACTIONS = {
     "CONTINUE": do_continue,
     "SUPERMIND": do_show_mind,
     "LAB": do_nothing,
-    "AVATAR": do_nothing,
+    "AVATAR": do_view_avatar,
     "CHANGELOC": do_change_location,
     "CANCEL": do_cancel,
     "EXPLORE": do_explore
